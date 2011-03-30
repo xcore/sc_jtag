@@ -1,5 +1,5 @@
-<title>
-.......
+JTAG communication
+..................
 
 :Stable release:  unreleased
 
@@ -7,7 +7,7 @@
 
 :Maintainer:  
 
-:Description:  JTAG communication
+:Description:  Master JTAG communication, XCore JTAG access.
 
 
 Key Features
