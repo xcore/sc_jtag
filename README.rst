@@ -5,7 +5,7 @@ JTAG communication
 
 :Status:  Feature complete
 
-:Maintainer:  
+:Maintainer:  https://github.com/mattfyles
 
 :Description:  Master JTAG communication, XCore JTAG access.
 
