@@ -19,6 +19,7 @@ Key Features
 To Do
 =====
 
+* Create a simple example program
 * Slave JTAG
 
 Firmware Overview
