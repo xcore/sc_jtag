@@ -1,0 +1,6 @@
+#ifndef JTAG_OTP_ACCESS_H_
+#define JTAG_OTP_ACCESS_H_
+
+
+
+#endif JTAG_OTP_ACCESS_H_
