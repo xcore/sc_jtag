@@ -26,6 +26,24 @@ static unsigned char chip_tap_mux_values[7] = {0x0, 0x1, 0x8, 0x9, 0xa, 0xb, 0xf
 #define GETMUX_IR 0x5
 #define BYPASS_IR 0xf
 
+// Register lengths for each TAP.
+#define BSCAN_TAP_IR_LEN 4
+#define BSCAN_TAP_BYP_LEN 1
+#define CHIP_TAP_IR_LEN 4
+#define CHIP_TAP_BYP_LEN 1
+#define XCORE_TAP_IR_LEN 10
+#define XCORE_TAP_DR_LEN 32
+#define XCORE_TAP_BYP_LEN 1
+#define OTP_TAP_IR_LEN 2
+#define OTP_TAP_DR_LEN 3
+#define OTP_TAP_BYP_LEN 1
+
+// Length of the chain for one chip. This depends on the state of the mux control.
+#define MUX_NC_IR_LEN (BSCAN_TAP_IR_LEN + CHIP_TAP_IR_LEN)
+#define MUX_XCORE_BYP_LEN (BSCAN_TAP_BYP_LEN + CHIP_TAP_BYP_LEN)
+#define MUX_XCORE_IR_LEN (BSCAN_TAP_IR_LEN + CHIP_TAP_IR_LEN + XCORE_TAP_IR_LEN + OTP_TAP_IR_LEN)
+#define MUX_XCORE_BYP_LEN (BSCAN_TAP_BYP_LEN + CHIP_TAP_BYP_LEN + XCORE_TAP_BYP_LEN + OTP_TAP_BYP_LEN)
+
 // XMOS JTAG SCAN CHAIN DETAILS
 #define XCORE_MAX_CHAIN_LEN 16
 #define XCORE_CHAIN_UNKNOWN 0
