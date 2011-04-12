@@ -405,8 +405,6 @@ static void jtag_read_idcode(void) {
 static void jtag_query_chain_len(void) {
   int i = 0;
   int num_chips = 0;
-  int xcore_data_start_word = NUMDEVSPREV / 32;
-  int xcore_data_bit_shift = NUMDEVSPREV - (xcore_data_start_word * 32);
   int num_external_jtag_devs = NUMDEVSPREV + NUMDEVSPOST;
 
   for (i = 0; i < XCORE_MAX_CHAIN_LEN; i++) {
