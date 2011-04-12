@@ -26,6 +26,10 @@ static unsigned char chip_tap_mux_values[7] = {0x0, 0x1, 0x8, 0x9, 0xa, 0xb, 0xf
 #define GETMUX_IR 0x5
 #define BYPASS_IR 0xf
 
+// OTP TAP COMMANDS
+#define OTP_TAP_CMD_LOAD_IR 0x0
+#define OTP_TAP_DATA_SHIFT_IR 0x2
+
 // Register lengths for each TAP.
 #define BSCAN_TAP_IR_LEN 4
 #define BSCAN_TAP_BYP_LEN 1
@@ -35,12 +39,13 @@ static unsigned char chip_tap_mux_values[7] = {0x0, 0x1, 0x8, 0x9, 0xa, 0xb, 0xf
 #define XCORE_TAP_DR_LEN 32
 #define XCORE_TAP_BYP_LEN 1
 #define OTP_TAP_IR_LEN 2
-#define OTP_TAP_DR_LEN 3
+// Length of DR for CMD_LOAD instruction.
+#define OTP_TAP_CMD_LOAD_DR_LEN 3
+// Length of DR for DATA_SHIFT instruction.
+#define OTP_TAP_DATA_SHIFT_DR_LEN 32
 #define OTP_TAP_BYP_LEN 1
 
 // Length of the chain for one chip. This depends on the state of the mux control.
-#define MUX_NC_IR_LEN (BSCAN_TAP_IR_LEN + CHIP_TAP_IR_LEN)
-#define MUX_XCORE_BYP_LEN (BSCAN_TAP_BYP_LEN + CHIP_TAP_BYP_LEN)
 #define MUX_XCORE_IR_LEN (BSCAN_TAP_IR_LEN + CHIP_TAP_IR_LEN + XCORE_TAP_IR_LEN + OTP_TAP_IR_LEN)
 #define MUX_XCORE_BYP_LEN (BSCAN_TAP_BYP_LEN + CHIP_TAP_BYP_LEN + XCORE_TAP_BYP_LEN + OTP_TAP_BYP_LEN)
 
@@ -562,16 +567,14 @@ static void jtag_chip_tap_reg_access(unsigned int command, unsigned int data, un
 	jtag_irscan(jtag_data_buffer, 22);
 }
 
-static void conditionally_set_mux_for_chipmodule(int chipmode) {
+static void conditionally_set_mux_for_chipmodule(int chipmodule) {
   if (chip_tap_mux_values[chipmodule] != chip_tap_mux_state) {
     jtag_chip_tap_reg_access(SETMUX_IR, chip_tap_mux_values[chipmodule], 0);
 
     // TODO -- Find out why this work around is required!!!
-    jtag_data_buffer[0] = 0x00ffc00f | regIndex << 4;
-    jtag_irscan(jtag_data_buffer, 22);
-    jtag_data_buffer[0] = data << 1;
-    jtag_data_buffer[1] = data >> 31;
-    jtag_drscan(jtag_data_buffer, 35);
+    jtag_data_buffer[0] = 0xffffffff;
+    jtag_irscan(jtag_data_buffer, MUX_XCORE_IR_LEN);
+    jtag_drscan(jtag_data_buffer, MUX_XCORE_BYP_LEN);
   }
 }
 
@@ -602,6 +605,25 @@ unsigned int jtag_read_reg(unsigned int chipmodule, unsigned int regIndex) {
 void jtag_write_reg(unsigned int chipmodule, unsigned int regIndex, unsigned int data) {
 	int TapIR = ((regIndex & 0xff) << 2) | 0x2;
 	jtag_module_reg_access(chipmodule, TapIR, data);	
+}
+
+void jtag_module_otp_write_test_port_cmd(unsigned int chipmodule, unsigned int cmd) {
+  conditionally_set_mux_for_chipmodule(chipmodule);
+
+  jtag_data_buffer[0] = 0x000ffffc | OTP_TAP_CMD_LOAD_IR;
+  jtag_irscan(jtag_data_buffer, MUX_XCORE_IR_LEN);
+  jtag_data_buffer[0] = cmd;
+  jtag_drscan(jtag_data_buffer, (MUX_XCORE_BYP_LEN - OTP_TAP_BYP_LEN) + OTP_TAP_CMD_LOAD_DR_LEN);
+}
+
+unsigned int jtag_module_otp_shift_data(unsigned int chipmodule, unsigned int data) {
+  conditionally_set_mux_for_chipmodule(chipmodule);
+
+  jtag_data_buffer[0] = 0x000ffffc | OTP_TAP_DATA_SHIFT_IR;
+  jtag_irscan(jtag_data_buffer, MUX_XCORE_IR_LEN);
+  jtag_data_buffer[0] = data;
+  jtag_drscan(jtag_data_buffer, (MUX_XCORE_BYP_LEN - OTP_TAP_BYP_LEN) + OTP_TAP_DATA_SHIFT_DR_LEN);
+  return jtag_data_buffer[0];
 }
 
 void jtag_select_chip(int chip_id) {
