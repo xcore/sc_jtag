@@ -9,16 +9,7 @@
 
 static unsigned int jtag_data_buffer[32]; 
 
-// CHIP TAP MUX STATES
-#define MUX_NC 0
-#define MUX_SSWITCH 1
-#define MUX_XCORE0 2
-#define MUX_XCORE1 3
-#define MUX_XCORE2 4
-#define MUX_XCORE3 5
-#define MUX_XCOREALL 6
-
-// CHIP TAP MUX VALUES
+// CHIP TAP MUX VALUES. This array is indexed by the CHIP TAP MUX STATE.
 static unsigned char chip_tap_mux_values[7] = {0x0, 0x1, 0x8, 0x9, 0xa, 0xb, 0xf};
 
 // CHIP TAP COMMANDS

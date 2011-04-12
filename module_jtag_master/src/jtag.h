@@ -6,6 +6,15 @@
 #ifndef JTAG_H_
 #define JTAG_H_
 
+// CHIP TAP MUX STATES
+#define MUX_NC 0
+#define MUX_SSWITCH 1
+#define MUX_XCORE0 2
+#define MUX_XCORE1 3
+#define MUX_XCORE2 4
+#define MUX_XCORE3 5
+#define MUX_XCOREALL 6
+
 void jtag_init(void);
 void jtag_deinit(void);
 void jtag_speed(int divider);
