@@ -544,18 +544,21 @@ static void jtag_chip_tap_reg_access(unsigned int command, unsigned int data, un
 	jtag_irscan(jtag_data_buffer, 22);
 }
 
-static void jtag_module_reg_access(unsigned int chipmodule, unsigned int regIndex, unsigned int data) {
-	
-	if (chip_tap_mux_values[chipmodule] != chip_tap_mux_state) {
-	  jtag_chip_tap_reg_access(SETMUX_IR, chip_tap_mux_values[chipmodule], 0);
+static void conditionally_set_mux_for_chipmodule(int chipmode) {
+  if (chip_tap_mux_values[chipmodule] != chip_tap_mux_state) {
+    jtag_chip_tap_reg_access(SETMUX_IR, chip_tap_mux_values[chipmodule], 0);
 
-	  // TODO -- Find out why this work around is required!!!
-	  jtag_data_buffer[0] = 0x00ffc00f | regIndex << 4;	
-	  jtag_irscan(jtag_data_buffer, 22);	
-	  jtag_data_buffer[0] = data << 1;
-	  jtag_data_buffer[1] = data >> 31; 
-	  jtag_drscan(jtag_data_buffer, 35);	
-	}
+    // TODO -- Find out why this work around is required!!!
+    jtag_data_buffer[0] = 0x00ffc00f | regIndex << 4;
+    jtag_irscan(jtag_data_buffer, 22);
+    jtag_data_buffer[0] = data << 1;
+    jtag_data_buffer[1] = data >> 31;
+    jtag_drscan(jtag_data_buffer, 35);
+  }
+}
+
+static void jtag_module_reg_access(unsigned int chipmodule, unsigned int regIndex, unsigned int data) {
+	conditionally_set_mux_for_chipmodule(chipmodule);
 	
 	jtag_data_buffer[0] = 0x00ffc00f | regIndex << 4;	
 	jtag_irscan(jtag_data_buffer, 22);	
