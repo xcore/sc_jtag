@@ -70,6 +70,14 @@ static int MAXJTAGCLKSPEED = 0;
 #define XMOS_JTAG_RESET_TRST_SRST_JTAG 2
 #define XMOS_JTAG_RESET_TRST_SRST_SPI 3
 
+#define ENABLE_DEBUG
+#ifdef ENABLE_DEBUG
+#include <stdio.h>
+#define DEBUG(x) x
+#else
+#define DEBUG()
+#endif
+
 unsigned char chip_tap_mux_state = MUX_NC;
 
 on stdcore[0] : buffered out port:32 jtag_pin_TDI  = XS1_PORT_1A;
@@ -599,20 +607,25 @@ void jtag_write_reg(unsigned int chipmodule, unsigned int regIndex, unsigned int
 }
 
 void jtag_module_otp_write_test_port_cmd(unsigned int chipmodule, unsigned int cmd) {
+  DEBUG(printf("jtag_module_otp_write_test_port_cmd() cmd=0x%x\n", cmd);)
   conditionally_set_mux_for_chipmodule(chipmodule);
-
   jtag_data_buffer[0] = 0x000ffffc | OTP_TAP_CMD_LOAD_IR;
+  DEBUG(printf("IR: 0x%x (%d bits)\n", jtag_data_buffer[0], MUX_XCORE_IR_LEN);)
   jtag_irscan(jtag_data_buffer, MUX_XCORE_IR_LEN);
   jtag_data_buffer[0] = cmd;
+  DEBUG(printf("DR: 0x%x (%d bits)\n", jtag_data_buffer[0], (MUX_XCORE_BYP_LEN - OTP_TAP_BYP_LEN) + OTP_TAP_CMD_LOAD_DR_LEN);)
   jtag_drscan(jtag_data_buffer, (MUX_XCORE_BYP_LEN - OTP_TAP_BYP_LEN) + OTP_TAP_CMD_LOAD_DR_LEN);
 }
 
 unsigned int jtag_module_otp_shift_data(unsigned int chipmodule, unsigned int data) {
+  DEBUG(printf("jtag_module_otp_shift_data() data=0x%x\n", data);)
   conditionally_set_mux_for_chipmodule(chipmodule);
 
   jtag_data_buffer[0] = 0x000ffffc | OTP_TAP_DATA_SHIFT_IR;
+  DEBUG(printf("IR: 0x%x (%d bits)\n", jtag_data_buffer[0], MUX_XCORE_IR_LEN);)
   jtag_irscan(jtag_data_buffer, MUX_XCORE_IR_LEN);
   jtag_data_buffer[0] = data;
+  DEBUG(printf("DR: 0x%x (%d bits)\n", jtag_data_buffer[0], (MUX_XCORE_BYP_LEN - OTP_TAP_BYP_LEN) + OTP_TAP_DATA_SHIFT_DR_LEN);)
   jtag_drscan(jtag_data_buffer, (MUX_XCORE_BYP_LEN - OTP_TAP_BYP_LEN) + OTP_TAP_DATA_SHIFT_DR_LEN);
   return jtag_data_buffer[0];
 }

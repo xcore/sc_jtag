@@ -86,30 +86,43 @@ enum {
 
 #define DONTCARE 0
 
+#define ENABLE_DEBUG
+#ifdef ENABLE_DEBUG
+#include <stdio.h>
+#define DEBUG(x) x
+#else
+#define DEBUG()
+#endif
+
 /* Test port commands. */
 static inline void update_command(int chipmodule)
 {
+  DEBUG(printf("update_command()\n");)
   jtag_module_otp_write_test_port_cmd(chipmodule, TP_UPDATE_CMD);
 }
 
 static inline void update_mode(int chipmodule)
 {
+  DEBUG(printf("update_mode()\n");)
   jtag_module_otp_write_test_port_cmd(chipmodule, TP_UPDATE_MODE);
 }
 
 static unsigned direct_access(int chipmodule, unsigned data)
 {
+  DEBUG(printf("direct_access()\n");)
   jtag_module_otp_write_test_port_cmd(chipmodule, TP_DIRECT);
   return jtag_module_otp_shift_data(chipmodule, data);
 }
 
 static inline void idle(int chipmodule)
 {
+  DEBUG(printf("idle()\n");)
   jtag_module_otp_write_test_port_cmd(chipmodule, TP_IDLE);
 }
 
 static unsigned shift(int chipmodule, unsigned data)
 {
+  DEBUG(printf("shift() data=%d\n", data);)
   jtag_module_otp_write_test_port_cmd(chipmodule, TP_SHIFT);
   data = jtag_module_otp_shift_data(chipmodule, bitrev(data));
   return bitrev(data);
@@ -118,6 +131,7 @@ static unsigned shift(int chipmodule, unsigned data)
 /* Helper functions. */
 static void write_mode(int chipmodule, unsigned value, unsigned address)
 {
+  DEBUG(printf("write_mode() value=%d address=%d\n", value, address);)
   unsigned data = value | (address << MODE_REGISTER_LEN);
   shift(chipmodule, data);
   update_mode(chipmodule);
@@ -125,6 +139,7 @@ static void write_mode(int chipmodule, unsigned value, unsigned address)
 
 static void write_command(int chipmodule, unsigned command, unsigned address)
 {
+  DEBUG(printf("write_command() command=%d address=%d\n", command, address);)
   unsigned data = command | (address << CMD_REGISTER_LEN);
   shift(chipmodule, data);
   update_command(chipmodule);
@@ -133,6 +148,7 @@ static void write_command(int chipmodule, unsigned command, unsigned address)
 /* OTP functions */
 unsigned jtag_otp_read_word(int chipmodule, unsigned address)
 {
+  DEBUG(printf("jtag_otp_read_word() address=%d\n", address);)
   write_mode(chipmodule, MODE_SELECT_DISABLE | TSO_SELECTOR_SO |
                          BURST_MODE_NONE | MACRO_SELECT_ENABLE, address);
   write_command(chipmodule, READ, address);
