@@ -30,7 +30,8 @@ int jtag_get_num_regs_per_thread(int chip_id);
 void jtag_select_chip(int chip_id);
 unsigned int jtag_read_reg(unsigned int chipmodule, unsigned int regIndex);
 void jtag_write_reg(unsigned int chipmodule, unsigned int regIndex, unsigned int data);
-void jtag_enable_serial_otp_access(int value);
+void jtag_enable_serial_otp_access(void);
+void jtag_disable_serial_otp_access(void);
 void jtag_module_otp_write_test_port_cmd(unsigned int chipmodule, unsigned int cmd);
 unsigned int jtag_module_otp_shift_data(unsigned int chipmodule, unsigned int oldData);
 

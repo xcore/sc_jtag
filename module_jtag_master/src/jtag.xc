@@ -610,12 +610,14 @@ void jtag_write_reg(unsigned int chipmodule, unsigned int regIndex, unsigned int
 	jtag_module_reg_access(chipmodule, TapIR, data);	
 }
 
-void jtag_enable_serial_otp_access(int value)
+void jtag_enable_serial_otp_access(void)
 {
-  unsigned mask = 0;
-  if (value)
-    mask |= TEST_MODE_OTP_SERIAL_ENABLE;
-  jtag_chip_tap_reg_access(SET_TEST_MODE_IR, (0xFACED00 << 4) | mask, 0);
+  jtag_chip_tap_reg_access(SET_TEST_MODE_IR, (0xFACED00 << 4) | TEST_MODE_OTP_SERIAL_ENABLE, 0);
+}
+
+void jtag_disable_serial_otp_access(void)
+{
+  jtag_chip_tap_reg_access(SET_TEST_MODE_IR, (0xFACED00 << 4), 0);
 }
 
 void jtag_module_otp_write_test_port_cmd(unsigned int chipmodule, unsigned int cmd) {
