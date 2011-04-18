@@ -86,7 +86,7 @@ enum {
 
 #define DONTCARE 0
 
-#define ENABLE_DEBUG
+//#define ENABLE_DEBUG
 #ifdef ENABLE_DEBUG
 #include <stdio.h>
 #define DEBUG(x) x
@@ -150,7 +150,7 @@ unsigned jtag_otp_read_word(int chipmodule, unsigned address)
 {
   DEBUG(printf("jtag_otp_read_word() address=0x%x\n", address);)
   write_mode(chipmodule, MODE_SELECT_DISABLE | TSO_SELECTOR_SO |
-                         BURST_MODE_NONE | MACRO_SELECT_ENABLE, address);
+                         BURST_MODE_NONE | MACRO_SELECT_ENABLE, 0);
   write_command(chipmodule, READ, address);
   idle(chipmodule);
   return direct_access(chipmodule, DONTCARE);

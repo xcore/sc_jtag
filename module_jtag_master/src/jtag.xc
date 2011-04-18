@@ -16,6 +16,7 @@ static unsigned char chip_tap_mux_values[7] = {0x0, 0x1, 0x8, 0x9, 0xa, 0xb, 0xf
 // CHIP TAP COMMANDS
 #define SETMUX_IR 0x4
 #define GETMUX_IR 0x5
+#define SET_TEST_MODE_IR 0x8
 #define BYPASS_IR 0xf
 
 // OTP TAP COMMANDS
@@ -50,6 +51,8 @@ static unsigned char chip_tap_mux_values[7] = {0x0, 0x1, 0x8, 0x9, 0xa, 0xb, 0xf
 #define XCORE_CHAIN_G1_ID 0x2633
 #define XCORE_CHAIN_G1_REVC 3
 
+#define TEST_MODE_OTP_SERIAL_ENABLE 0x4
+
 static int XCORECHAIN = 0;
 static int XCOREID = -1;
 static int XCORESPREV = 0;
@@ -71,7 +74,7 @@ static int MAXJTAGCLKSPEED = 0;
 #define XMOS_JTAG_RESET_TRST_SRST_JTAG 2
 #define XMOS_JTAG_RESET_TRST_SRST_SPI 3
 
-#define ENABLE_DEBUG
+//#define ENABLE_DEBUG
 #ifdef ENABLE_DEBUG
 #include <stdio.h>
 #define DEBUG(x) x
@@ -605,6 +608,14 @@ unsigned int jtag_read_reg(unsigned int chipmodule, unsigned int regIndex) {
 void jtag_write_reg(unsigned int chipmodule, unsigned int regIndex, unsigned int data) {
 	int TapIR = ((regIndex & 0xff) << 2) | 0x2;
 	jtag_module_reg_access(chipmodule, TapIR, data);	
+}
+
+void jtag_enable_serial_otp_access(int value)
+{
+  unsigned mask = 0;
+  if (value)
+    mask |= TEST_MODE_OTP_SERIAL_ENABLE;
+  jtag_chip_tap_reg_access(SET_TEST_MODE_IR, (0xFACED00 << 4) | mask, 0);
 }
 
 void jtag_module_otp_write_test_port_cmd(unsigned int chipmodule, unsigned int cmd) {
