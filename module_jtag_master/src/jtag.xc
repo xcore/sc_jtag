@@ -76,7 +76,7 @@ static int MAXJTAGCLKSPEED = 0;
 #include <stdio.h>
 #define DEBUG(x) x
 #else
-#define DEBUG()
+#define DEBUG(x)
 #endif
 
 unsigned char chip_tap_mux_state = MUX_NC;
@@ -628,6 +628,7 @@ unsigned int jtag_module_otp_shift_data(unsigned int chipmodule, unsigned int da
   jtag_data_buffer[0] = data;
   DEBUG(printf("DR: 0x%x (%d bits)\n", jtag_data_buffer[0], (MUX_XCORE_BYP_LEN - OTP_TAP_BYP_LEN) + OTP_TAP_DATA_SHIFT_DR_LEN);)
   jtag_drscan(jtag_data_buffer, (MUX_XCORE_BYP_LEN - OTP_TAP_BYP_LEN) + OTP_TAP_DATA_SHIFT_DR_LEN);
+  DEBUG(printf("Output: 0x%x\n", jtag_data_buffer[0]);)
   return jtag_data_buffer[0];
 }
 
