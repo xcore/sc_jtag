@@ -546,7 +546,7 @@ static void jtag_shift_bypass_to_all(void) {
     chip_tap_mux_state = 0;
 }
 
-static void jtag_chip_tap_reg_access(unsigned int command, unsigned int data, unsigned int prevData) {
+static void jtag_chip_tap_reg_access(unsigned int command, unsigned int data) {
 	//printstr("Command "); printhex(command); printstr(" Data "); printhex(data); printstrln("");
 	
 	if (chip_tap_mux_state != MUX_NC) {
@@ -572,7 +572,7 @@ static void jtag_chip_tap_reg_access(unsigned int command, unsigned int data, un
 
 static void conditionally_set_mux_for_chipmodule(int chipmodule) {
   if (chip_tap_mux_values[chipmodule] != chip_tap_mux_state) {
-    jtag_chip_tap_reg_access(SETMUX_IR, chip_tap_mux_values[chipmodule], 0);
+    jtag_chip_tap_reg_access(SETMUX_IR, chip_tap_mux_values[chipmodule]);
 
     // TODO -- Find out why this work around is required!!!
     jtag_data_buffer[0] = 0xffffffff;
@@ -612,12 +612,12 @@ void jtag_write_reg(unsigned int chipmodule, unsigned int regIndex, unsigned int
 
 void jtag_enable_serial_otp_access(void)
 {
-  jtag_chip_tap_reg_access(SET_TEST_MODE_IR, (0xFACED00 << 4) | TEST_MODE_OTP_SERIAL_ENABLE, 0);
+  jtag_chip_tap_reg_access(SET_TEST_MODE_IR, (0xFACED00 << 4) | TEST_MODE_OTP_SERIAL_ENABLE);
 }
 
 void jtag_disable_serial_otp_access(void)
 {
-  jtag_chip_tap_reg_access(SET_TEST_MODE_IR, (0xFACED00 << 4), 0);
+  jtag_chip_tap_reg_access(SET_TEST_MODE_IR, (0xFACED00 << 4));
 }
 
 void jtag_module_otp_write_test_port_cmd(unsigned int chipmodule, unsigned int cmd) {
