@@ -8,6 +8,9 @@
 #include "dbg_access.h"
 #include <print.h>
 #include <safestring.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <jtag.h>
 
 #define XTAG2_FIRMWARE_TYPE 10
 #define XTAG2_FIRMWARE_MAJOR_VER 2
@@ -25,7 +28,7 @@ static void dbg_select_core_and_thread(int xcore, int thread) {
     // TODO Will not currently support mixed G1 / G4 systems
     int selected_chip = xcore >> (dbg_get_num_cores_per_chip(0) >> 1);
     int mapped_xcore = xcore % dbg_get_num_cores_per_chip(0);
-    dbg_select_chip(selected_chip);
+    dbg_select_chip(selected_chip, 0);
     dbg_select_xcore(mapped_xcore);
     dbg_current_xcore = xcore;
   }
@@ -47,18 +50,19 @@ int dbg_cmd_connect(dbg_cmd_type_connect &connect) {
 	// NUM_CHIPS * NUM_THREADS_PER_CORE
 	// NUM_CHIPS * NUM_REGS_PER_THREAD
  
-        // printintln(connect.jtag_speed);
+         //printintln(connect.jtag_speed);
 
         if (connect.jtag_speed != -1) {
           dbg_speed(connect.jtag_speed);
         }
  
-        dbg_chain(connect.jtag_devs_pre, connect.jtag_bits_pre,
-                  connect.jtag_devs_post, connect.jtag_bits_post,
-                  connect.jtag_max_speed);
+        //dbg_chain(connect.jtag_devs_pre, connect.jtag_bits_pre,
+        //          connect.jtag_devs_post, connect.jtag_bits_post,
+        //          connect.jtag_max_speed);
 
 	dbg_init();
-	
+
+
 	dbg_total_cores = 0;
 	
 	num_chips = dbg_get_num_chips();
@@ -87,7 +91,8 @@ int dbg_cmd_connect(dbg_cmd_type_connect &connect) {
 	  data_index++;
 	}
 	
-	dbg_remove_all_mem_breaks();
+        if (num_chips > 0) 
+  	  dbg_remove_all_mem_breaks();
 	
 	dbg_cmd_ret.type = DBG_CMD_CONNECT_ACK;
 	
@@ -620,6 +625,50 @@ int dbg_cmd_reset(dbg_cmd_type_reset &reset, chanend ?reset_chan) {
 	return ret_packet_len;	
 }
 
+int dbg_cmd_read_jtag_reg(dbg_cmd_type_read_jtag_reg &read_reg) {
+        int ret_packet_len = 0;
+
+	dbg_cmd_ret.data[0] = dbg_read_jtag_reg(read_reg.address, read_reg.tapid, read_reg.tapmodule);
+
+        ret_packet_len += 4;
+      
+        dbg_cmd_ret.type = DBG_CMD_READ_JTAG_REG_ACK;
+        ret_packet_len += 4;
+
+        return ret_packet_len;
+}
+
+int dbg_cmd_write_jtag_reg(dbg_cmd_type_write_jtag_reg &write_reg) {
+        int ret_packet_len = 0;
+
+        dbg_write_jtag_reg(write_reg.address, write_reg.tapid, write_reg.tapmodule, write_reg.data[0]);
+
+        dbg_cmd_ret.type = DBG_CMD_WRITE_JTAG_REG_ACK;
+        ret_packet_len += 4;
+
+        return ret_packet_len;
+}
+
+int dbg_cmd_get_jtag_chain(dbg_cmd_type_get_jtag_chain &get_jtag_chain) {
+        int ret_packet_len = 0;
+	int data_index = 0;
+
+        dbg_cmd_ret.data[data_index] = dbg_get_num_jtag_taps();
+        data_index++;
+
+        for (int i = 0; i < dbg_get_num_jtag_taps(); i++) {
+          dbg_cmd_ret.data[data_index] = dbg_get_jtag_tap_id(i);
+          data_index++;
+        }
+
+        dbg_cmd_ret.type = DBG_CMD_GET_JTAG_CHAIN_ACK;
+
+	// Just send the whole lot
+	ret_packet_len = sizeof(dbg_cmd_ret);
+
+        return ret_packet_len;
+}
+
 int dbg_cmd_firmware_version(dbg_cmd_type_firmware_version &firmware_version) {
 	int ret_packet_len = 0;
 		
@@ -712,6 +761,12 @@ void dbg_cmd_manager(chanend input, chanend output, chanend reset) {
 		case DBG_CMD_RESET_REQ:
 			dbg_cmd_len = dbg_cmd_reset((dbg_cmd.data, dbg_cmd_type_reset), reset);
 			break;
+                case DBG_CMD_READ_JTAG_REG_REQ:
+                        dbg_cmd_len = dbg_cmd_read_jtag_reg((dbg_cmd.data, dbg_cmd_type_read_jtag_reg));
+                        break;
+                case DBG_CMD_WRITE_JTAG_REG_REQ:
+                        dbg_cmd_len = dbg_cmd_write_jtag_reg((dbg_cmd.data, dbg_cmd_type_write_jtag_reg));
+                        break;
 #if 0
                 case DBG_CMD_FIRMWARE_VERSION_REQ:
                         dbg_cmd_len = dbg_cmd_firmware_version((dbg_cmd.data, dbg_cmd_type_firmware_version));
@@ -794,6 +849,15 @@ void dbg_cmd_manager_nochan(int input_size, int input[], int &output_size, int o
                         break;
                 case DBG_CMD_RESET_REQ:
                         dbg_cmd_len = dbg_cmd_reset((dbg_cmd.data, dbg_cmd_type_reset), reset);
+                        break;
+                case DBG_CMD_READ_JTAG_REG_REQ:
+                        dbg_cmd_len = dbg_cmd_read_jtag_reg((dbg_cmd.data, dbg_cmd_type_read_jtag_reg));
+                        break;
+                case DBG_CMD_WRITE_JTAG_REG_REQ:
+                        dbg_cmd_len = dbg_cmd_write_jtag_reg((dbg_cmd.data, dbg_cmd_type_write_jtag_reg));
+                        break;
+                case DBG_CMD_GET_JTAG_CHAIN_REQ:
+                        dbg_cmd_len = dbg_cmd_get_jtag_chain((dbg_cmd.data, dbg_cmd_type_get_jtag_chain));
                         break;
 #if 0
                 case DBG_CMD_FIRMWARE_VERSION_REQ:
