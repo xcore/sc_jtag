@@ -50,7 +50,13 @@ enum dbg_cmd_type {
    DBG_CMD_INTERRUPT_REQ,
    DBG_CMD_INTERRUPT_ACK,
    DBG_CMD_RESET_REQ,
-   DBG_CMD_RESET_ACK
+   DBG_CMD_RESET_ACK, 
+   DBG_CMD_READ_JTAG_REG_REQ,
+   DBG_CMD_READ_JTAG_REG_ACK,
+   DBG_CMD_WRITE_JTAG_REG_REQ,
+   DBG_CMD_WRITE_JTAG_REG_ACK,
+   DBG_CMD_GET_JTAG_CHAIN_REQ,
+   DBG_CMD_GET_JTAG_CHAIN_ACK
 };
 
 typedef struct {
@@ -184,5 +190,23 @@ typedef struct {
 typedef struct {
   unsigned int data[MAX_DBG_CMD_DATA_LEN];
 } dbg_cmd_type_firmware_reboot;
+
+typedef struct {
+  unsigned int address;
+  unsigned int tapid;
+  unsigned int tapmodule;
+  unsigned int data[MAX_DBG_CMD_DATA_LEN-3];
+} dbg_cmd_type_read_jtag_reg;
+
+typedef struct {
+  unsigned int address;
+  unsigned int tapid;
+  unsigned int tapmodule;
+  unsigned int data[MAX_DBG_CMD_DATA_LEN-3];
+} dbg_cmd_type_write_jtag_reg;
+
+typedef struct {
+  unsigned int data[MAX_DBG_CMD_DATA_LEN];
+} dbg_cmd_type_get_jtag_chain;
 
 #endif /*DBG_CMD_H_*/

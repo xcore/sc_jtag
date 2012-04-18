@@ -22,17 +22,26 @@ void jtag_chain(unsigned int jtag_devs_pre, unsigned int jtag_bits_pre,
                 unsigned int jtag_devs_post, unsigned int jtag_bits_post,
                 unsigned int jtag_max_speed);
 void jtag_reset(int reset_type);
-int jtag_get_num_chips(void);
-int jtag_get_chip_type(int chip_id);
-int jtag_get_num_cores_per_chip(int chip_id);
-int jtag_get_num_threads_per_core(int chip_id);
-int jtag_get_num_regs_per_thread(int chip_id);
-void jtag_select_chip(int chip_id);
+int jtag_get_num_xcores(void);
+int jtag_get_xcore_type(int chip_id);
+int jtag_get_num_cores_per_xcore(int chip_id);
+int jtag_get_num_threads_per_xcore(int chip_id);
+int jtag_get_num_regs_per_xcore_thread(int chip_id);
+void jtag_select_xmos_tap(int chip_id, unsigned int type);
 unsigned int jtag_read_reg(unsigned int chipmodule, unsigned int regIndex);
 void jtag_write_reg(unsigned int chipmodule, unsigned int regIndex, unsigned int data);
 void jtag_enable_serial_otp_access(void);
 void jtag_disable_serial_otp_access(void);
 void jtag_module_otp_write_test_port_cmd(unsigned int chipmodule, unsigned int cmd);
 unsigned int jtag_module_otp_shift_data(unsigned int chipmodule, unsigned int oldData);
+
+void jtag_rti_delay(void);
+void jtag_irscan(unsigned int scandata[], unsigned int numbits);
+void jtag_drscan(unsigned int scandata[], unsigned int numbits);
+
+// JTAG chain info functions
+int jtag_get_num_taps(void);
+int jtag_get_tap_id(unsigned int index);
+int jtag_select_tap(unsigned int index);
 
 #endif /*JTAG_H_*/
