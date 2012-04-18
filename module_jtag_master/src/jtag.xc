@@ -6,7 +6,10 @@
 #include <jtag_xs1_su.h>
 #include <stdlib.h>
 
-unsigned int jtag_data_buffer[32];
+#define JTAG_MAX_TAPS 64
+#define JTAG_DATA_BUFFER_WORDS 32   // TODO: relate to the above.
+
+unsigned int jtag_data_buffer[JTAG_DATA_BUFFER_WORDS];
 
 // CHIP TAP MUX STATES
 #define MUX_NC 0
@@ -64,7 +67,7 @@ static unsigned int JTAG_TAP_INDEX = 0;
 static unsigned int JTAG_NUM_TAPS_PREV = 0;
 static unsigned int JTAG_NUM_TAPS_POST = 0;
 
-static unsigned int JTAG_TAP_ID[64];
+static unsigned int JTAG_TAP_ID[JTAG_MAX_TAPS];
 static unsigned int JTAG_NUM_XMOS_DEVS = 0;
 static unsigned int JTAG_NUM_XMOS_XCORE = 0;
 static unsigned int JTAG_NUM_XMOS_SU = 0;
@@ -586,7 +589,7 @@ static void
 jtag_query_chain_len (void)
 {
   int i = 0;
-  int num_chips = 0;
+  int num_taps = 0;
   unsigned int xmos_device_map_index = 0;
 
   JTAG_NUM_TAPS = 0;
@@ -595,40 +598,44 @@ jtag_query_chain_len (void)
   JTAG_NUM_XMOS_SU = 0;
   JTAG_TAP_SINGLE_XCORE = 0;
 
-  for (i = 0; i < 16; i++) {
+  for (i = 0; i < JTAG_DATA_BUFFER_WORDS; i++) {
     jtag_data_buffer[i] = 0xffffffff;
   }
 
-  jtag_irscan_pins (jtag_data_buffer, 16 * 32);
+  jtag_irscan_pins (jtag_data_buffer, JTAG_DATA_BUFFER_WORDS * 32);
 
   jtag_data_buffer[0] = 1;
 
-  for (i = 1; i < 16; i++) {
+  for (i = 1; i < JTAG_DATA_BUFFER_WORDS; i++) {
     jtag_data_buffer[i] = 0x0;
   }
 
-  jtag_drscan_pins (jtag_data_buffer, 16 * 32);
+  jtag_drscan_pins (jtag_data_buffer, JTAG_DATA_BUFFER_WORDS * 32);
+
+#if 0
+    for (i = 15; i >= 0; i--) {
+        printf("%08x\n",jtag_data_buffer[i]);
+    }
+#endif
 
   if (jtag_data_buffer[0] != 0xffffffff) {
     for (i = 15; i >= 0; i--) {
-      //printhexln(jtag_data_buffer[i]);
-      if (jtag_data_buffer[i] != 0) {
-	for (int j = 31; j >= 0; j--) {
-	  if (jtag_data_buffer[i] & (1 << j)) {
-	    num_chips = (i * 16) + j;
-	    i = -1;
-	    break;
-	  }
-	}
-      }
+        int zeroes;
+        asm("clz %0,%1" : "=r" (zeroes) : "r" (jtag_data_buffer[i]));
+        if (zeroes < 32) {
+            num_taps = (i * 32) + (31-zeroes);
+            break;
+        }
     }
   }
 
   //printstr("Number of JTAG TAPS = ");
-  //printintln(num_chips);
+  //printintln(num_taps);
+  if (num_taps ==  0) {      
+      return;              // No taps found, or too many.
+  }
 
-  JTAG_NUM_TAPS = num_chips;
-
+  JTAG_NUM_TAPS = num_taps;
   // Setup idcode read for each tap
   for (i = 0; i < JTAG_NUM_TAPS; i++) {
     unsigned int word_index = i / 8;
@@ -637,6 +644,10 @@ jtag_query_chain_len (void)
     unsigned int idcode_2 = 0;
     unsigned int xcore_chain_type = 0;
     unsigned int j = 0;
+
+    for (j = 0; j < JTAG_DATA_BUFFER_WORDS; j++) {
+      jtag_data_buffer[j] = 0xffffffff;
+    }
 
 #if 0
     printf ("Addressing tap %d, word %d, subword %d\n", i, word_index,
@@ -648,25 +659,22 @@ jtag_query_chain_len (void)
     // Add IDCODE for tap
     jtag_data_buffer[word_index] = ~(0xc << (subword_index * 4));
 
+    // printf("IR in %08x  %08x\n", jtag_data_buffer[0], jtag_data_buffer[1]);
+
     jtag_irscan_pins (jtag_data_buffer, JTAG_NUM_TAPS * 4);
 
     // DR scan(num_taps_found * 4)
 
-    jtag_drscan_pins (jtag_data_buffer, 64);
+    jtag_drscan_pins (jtag_data_buffer, ((JTAG_NUM_TAPS+31)&~31) + 32);
 
-    idcode_1 = jtag_data_buffer[0];
-    idcode_2 = jtag_data_buffer[1];
+    xcore_chain_type = jtag_data_buffer[(i>>5)] >> i |
+        jtag_data_buffer[(i>>5)+1] << (32 - (i));
 
-    xcore_chain_type = idcode_1 >> i | idcode_2 << (32 - (i));
-
-    //printf("0x%x chain type\n", xcore_chain_type);
+    // printf("%08x  %08x --> 0x%x chain type\n", idcode_1, idcode_2, xcore_chain_type);
 
     JTAG_TAP_ID[i] = xcore_chain_type;
 
     // reset to bypass
-    for (j = 0; j < 16; j++) {
-      jtag_data_buffer[j] = 0xffffffff;
-    }
 
   }
 
