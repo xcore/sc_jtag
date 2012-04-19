@@ -6,7 +6,7 @@
 #include <jtag_xs1_su.h>
 #include <stdlib.h>
 
-#define JTAG_MAX_TAPS 64
+#define JTAG_MAX_TAPS 96
 #define JTAG_DATA_BUFFER_WORDS 32   // TODO: relate to the above.
 
 unsigned int jtag_data_buffer[JTAG_DATA_BUFFER_WORDS];
@@ -71,7 +71,7 @@ static unsigned int JTAG_TAP_ID[JTAG_MAX_TAPS];
 static unsigned int JTAG_NUM_XMOS_DEVS = 0;
 static unsigned int JTAG_NUM_XMOS_XCORE = 0;
 static unsigned int JTAG_NUM_XMOS_SU = 0;
-static unsigned char JTAG_XMOS_DEV_MAP[32];
+static unsigned char JTAG_XMOS_DEV_MAP[JTAG_MAX_TAPS];
 static int JTAG_TAP_SINGLE_XCORE = 0;
 
 // XMOS JTAG SCAN CHAIN DETAILS
@@ -629,8 +629,10 @@ jtag_query_chain_len (void)
     }
   }
 
-  //printstr("Number of JTAG TAPS = ");
-  //printintln(num_taps);
+#if 0
+  printstr("Number of JTAG TAPS = ");
+  printintln(num_taps);
+#endif
   if (num_taps ==  0) {      
       return;              // No taps found, or too many.
   }
@@ -667,11 +669,12 @@ jtag_query_chain_len (void)
 
     jtag_drscan_pins (jtag_data_buffer, ((JTAG_NUM_TAPS+31)&~31) + 32);
 
-    xcore_chain_type = jtag_data_buffer[(i>>5)] >> i |
-        jtag_data_buffer[(i>>5)+1] << (32 - (i));
-
-    // printf("%08x  %08x --> 0x%x chain type\n", idcode_1, idcode_2, xcore_chain_type);
-
+    xcore_chain_type = jtag_data_buffer[(i>>5)] >> (i&31) |
+        jtag_data_buffer[(i>>5)+1] << (32 - (i&31));
+#if 0
+    printf("%08x  %08x  %08x --> 0x%x chain type\n", jtag_data_buffer[0], 
+           jtag_data_buffer[1], jtag_data_buffer[2], xcore_chain_type);
+#endif
     JTAG_TAP_ID[i] = xcore_chain_type;
 
     // reset to bypass
