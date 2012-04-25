@@ -128,13 +128,13 @@ jtag_reset_srst (void)
   sync (jtag_pin_TCK);
   clearbuf (jtag_pin_TMS);
 
-jtag_pin_SRST <:0;
-tmr:>s;
+  jtag_pin_SRST <:0;
+  tmr:>s;
   tmr when timerafter (s + 40000):>s;
-jtag_pin_SRST <:1;
+  jtag_pin_SRST <:1;
 
-//tmr:>s;
-  //tmr when timerafter (s + 50000000):>s;
+  tmr:>s;
+  tmr when timerafter (s + 50000000):>s;
 
   return;
 }
@@ -148,15 +148,15 @@ jtag_reset_trst (void)
   sync (jtag_pin_TCK);
   clearbuf (jtag_pin_TMS);
 
-jtag_pin_TRST <:0;
-tmr:>s;
+  jtag_pin_TRST <:0;
+  tmr:>s;
   tmr when timerafter (s + 4000):>s;
-jtag_pin_TRST <:1;
+  jtag_pin_TRST <:1;
   tmr when timerafter (s + 4000):>s;
 
-jtag_pin_TMS <:0xf;
+  jtag_pin_TMS <:0xf;
   partout (jtag_pin_TCK, 8, 0xaa);
-jtag_pin_TMS <:0x7;
+  jtag_pin_TMS <:0x7;
   partout (jtag_pin_TCK, 8, 0xaa);
 
   return;
@@ -171,31 +171,31 @@ jtag_reset_srst_trst (void)
   sync (jtag_pin_TCK);
   clearbuf (jtag_pin_TMS);
 
-tmr:>s;
+  tmr:>s;
   tmr when timerafter (s + 4000):>s;
-jtag_pin_TRST <:0;
+  jtag_pin_TRST <:0;
 
-tmr:>s;
+  tmr:>s;
   tmr when timerafter (s + 4000):>s;
-jtag_pin_SRST <:0;
+  jtag_pin_SRST <:0;
 
-tmr:>s;
+  tmr:>s;
   tmr when timerafter (s + 40000):>s;
-jtag_pin_SRST <:1;
+  jtag_pin_SRST <:1;
 
-//tmr:>s;
-  //tmr when timerafter (s + 50000000):>s;
+  tmr:>s;
+  tmr when timerafter (s + 50000000):>s;
 
-tmr:>s;
+  tmr:>s;
   tmr when timerafter (s + 40000):>s;
-jtag_pin_TRST <:1;
+  jtag_pin_TRST <:1;
 
-tmr:>s;
+  tmr:>s;
   tmr when timerafter (s + 4000):>s;
 
-jtag_pin_TMS <:0xf;
+  jtag_pin_TMS <:0xf;
   partout (jtag_pin_TCK, 8, 0xaa);
-jtag_pin_TMS <:0x7;
+  jtag_pin_TMS <:0x7;
   partout (jtag_pin_TCK, 8, 0xaa);
 
   return;
