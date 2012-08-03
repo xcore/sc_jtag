@@ -6,8 +6,8 @@
 #include <jtag_xs1_su.h>
 #include <stdlib.h>
 
-#define JTAG_MAX_TAPS 96
-#define JTAG_DATA_BUFFER_WORDS 32   // TODO: relate to the above.
+#define JTAG_MAX_TAPS 256 
+#define JTAG_DATA_BUFFER_WORDS 128   // TODO: relate to the above.
 
 unsigned int jtag_data_buffer[JTAG_DATA_BUFFER_WORDS];
 
@@ -73,6 +73,7 @@ static unsigned int JTAG_NUM_XMOS_XCORE = 0;
 static unsigned int JTAG_NUM_XMOS_SU = 0;
 static unsigned char JTAG_XMOS_DEV_MAP[JTAG_MAX_TAPS];
 static int JTAG_TAP_SINGLE_XCORE = 0;
+static int JTAG_USE_TMS_RESET = 0;
 
 // XMOS JTAG SCAN CHAIN DETAILS
 #define XCORE_MAX_CHAIN_LEN 16
@@ -119,8 +120,36 @@ on stdcore[0]:out port jtag_pin_TRST = XS1_PORT_1L;
 on stdcore[0]:clock tck_clk = XS1_CLKBLK_1;
 on stdcore[0]:clock other_clk = XS1_CLKBLK_2;
 
+int jtag_pin_transition(int pinvalues) {
+  unsigned int tdo_output = 0;
+  int tms_value = 0;
+  int tdi_value = 0;
+
+  clearbuf(jtag_pin_TMS);
+  clearbuf(jtag_pin_TDO);
+  clearbuf(jtag_pin_TDI);
+  clearbuf(jtag_pin_TCK);
+
+  if (pinvalues & 0x1) 
+    tms_value = 0x1;
+
+  if (pinvalues & 0x2) 
+    tdi_value = 0x1;
+
+  partout(jtag_pin_TMS, 1, tms_value);
+  partout(jtag_pin_TDI, 1, tdi_value);
+
+  // Output 1 TCK clk
+  partout (jtag_pin_TCK, 2, 0x2);
+  sync(jtag_pin_TCK);
+
+  tdo_output = partin(jtag_pin_TDO, 1);
+
+  return tdo_output;
+}
+
 static void
-jtag_reset_srst (void)
+jtag_reset_srst (chanend ?reset_chan)
 {
   unsigned s;
   timer tmr;
@@ -129,12 +158,21 @@ jtag_reset_srst (void)
   clearbuf (jtag_pin_TMS);
 
   jtag_pin_SRST <:0;
+
   tmr:>s;
   tmr when timerafter (s + 40000):>s;
   jtag_pin_SRST <:1;
 
   tmr:>s;
   tmr when timerafter (s + 50000000):>s;
+
+#if 0
+  if (!isnull(reset_chan)) {
+    outuchar(reset_chan, 0);
+    outct(reset_chan, 1);
+    chkct(reset_chan, 1);
+  }
+#endif
 
   return;
 }
@@ -142,28 +180,30 @@ jtag_reset_srst (void)
 static void
 jtag_reset_trst (void)
 {
-  unsigned s;
-  timer tmr;
 
-  sync (jtag_pin_TCK);
-  clearbuf (jtag_pin_TMS);
-
-  jtag_pin_TRST <:0;
-  tmr:>s;
-  tmr when timerafter (s + 4000):>s;
-  jtag_pin_TRST <:1;
-  tmr when timerafter (s + 4000):>s;
-
-  jtag_pin_TMS <:0xf;
-  partout (jtag_pin_TCK, 8, 0xaa);
-  jtag_pin_TMS <:0x7;
-  partout (jtag_pin_TCK, 8, 0xaa);
+  if (JTAG_USE_TMS_RESET) {
+    sync (jtag_pin_TCK);
+    clearbuf (jtag_pin_TMS);
+    jtag_pin_TMS <:0xf;
+    partout (jtag_pin_TCK, 8, 0xaa);
+    jtag_pin_TMS <:0x7;
+    partout (jtag_pin_TCK, 8, 0xaa);
+    sync (jtag_pin_TCK);
+  } else {
+    unsigned s;
+    timer tmr;
+    jtag_pin_TRST <:0;
+    tmr:>s;
+    tmr when timerafter (s + 4000):>s;
+    jtag_pin_TRST <:1;
+    tmr when timerafter (s + 4000):>s;
+  }
 
   return;
 }
 
 static void
-jtag_reset_srst_trst (void)
+jtag_reset_srst_trst (chanend ?reset_chan)
 {
   unsigned s;
   timer tmr;
@@ -179,12 +219,22 @@ jtag_reset_srst_trst (void)
   tmr when timerafter (s + 4000):>s;
   jtag_pin_SRST <:0;
 
+
   tmr:>s;
   tmr when timerafter (s + 40000):>s;
   jtag_pin_SRST <:1;
 
   tmr:>s;
   tmr when timerafter (s + 50000000):>s;
+
+#if 0
+  if (!isnull(reset_chan)) {
+    outuchar(reset_chan, 0);
+    outct(reset_chan, 1);
+    chkct(reset_chan, 1);
+  }
+#endif
+
 
   tmr:>s;
   tmr when timerafter (s + 40000):>s;
@@ -197,6 +247,7 @@ jtag_reset_srst_trst (void)
   partout (jtag_pin_TCK, 8, 0xaa);
   jtag_pin_TMS <:0x7;
   partout (jtag_pin_TCK, 8, 0xaa);
+
 
   return;
 }
@@ -205,12 +256,9 @@ void
 jtag_rti_delay (void)
 {
   int i = 0;
-
-  //for (i = 0; i < 10; i++) {
-jtag_pin_TMS <:0;
-jtag_pin_TCK <:0xAAAAAAAA;	// 16 CLK's  
-jtag_pin_TCK <:0xAAAAAAAA;	// 16 CLK's
-  //}
+  jtag_pin_TMS <:0;
+  jtag_pin_TCK <:0xAAAAAAAA;	// 16 CLK's  
+  jtag_pin_TCK <:0xAAAAAAAA;	// 16 CLK's
 }
 
 #pragma unsafe arrays
@@ -1012,7 +1060,7 @@ jtag_get_num_regs_per_xcore_thread (int chip_id)
 }
 
 void
-jtag_reset (int reset_type)
+jtag_reset (int reset_type, chanend ?reset_chan)
 {
   unsigned int saved_tap_index = JTAG_TAP_INDEX;
   unsigned s;
@@ -1022,14 +1070,14 @@ jtag_reset (int reset_type)
 
 
   if (reset_type == XMOS_JTAG_RESET_TRST_SRST) {
-    jtag_reset_srst ();
+    jtag_reset_srst (reset_chan);
     jtag_reset_trst ();
   }
   else if (reset_type == XMOS_JTAG_RESET_TRST) {
     jtag_reset_trst ();
   }
   else if (reset_type == XMOS_JTAG_RESET_TRST_SRST_JTAG) {
-    jtag_reset_srst_trst ();
+    jtag_reset_srst_trst (reset_chan);
   }
   else {
     return;
@@ -1106,9 +1154,8 @@ jtag_init (void)
     }
     start_clock (other_clk);
 
-  tmr:>s;
+    tmr:>s;
     tmr when timerafter (s + 400):>s;
-    //tmr when timerafter (s + 50000000):>s;
 
     jtag_started = 1;
   }
@@ -1119,8 +1166,22 @@ jtag_init (void)
   if (JTAG_TCK_SPEED_DIV == -1) {
     jtag_tck_speed (4);		// Speed down to 6 MHz on before first reset
   }
+  
+  // Set default state machine reset to use TMS
+  JTAG_USE_TMS_RESET = 1;
+  jtag_reset (XMOS_JTAG_RESET_TRST, null);
+  
+  // Reset using TMS failed, Try TRST pin
+  if (JTAG_NUM_XMOS_DEVS == 0) {
+    JTAG_USE_TMS_RESET = 0;
+    jtag_reset (XMOS_JTAG_RESET_TRST, null);
+  }
 
-  jtag_reset (XMOS_JTAG_RESET_TRST);
+  // Reset using TRST failed, Try full SRST and mode pins to JTAG
+  if (JTAG_NUM_XMOS_DEVS == 0) {
+    JTAG_USE_TMS_RESET = 1;
+    jtag_reset (XMOS_JTAG_RESET_TRST_SRST_JTAG, null);
+  }
 
   if (JTAG_NUM_XMOS_XCORE <= 4) {
     if (JTAG_TCK_SPEED_DIV == -1) {

@@ -21,7 +21,7 @@ void jtag_speed(int divider);
 void jtag_chain(unsigned int jtag_devs_pre, unsigned int jtag_bits_pre,
                 unsigned int jtag_devs_post, unsigned int jtag_bits_post,
                 unsigned int jtag_max_speed);
-void jtag_reset(int reset_type);
+void jtag_reset(int reset_type, chanend ?reset_chan);
 int jtag_get_num_xcores(void);
 int jtag_get_xcore_type(int chip_id);
 int jtag_get_num_cores_per_xcore(int chip_id);
@@ -38,6 +38,7 @@ unsigned int jtag_module_otp_shift_data(unsigned int chipmodule, unsigned int ol
 void jtag_rti_delay(void);
 void jtag_irscan(unsigned int scandata[], unsigned int numbits);
 void jtag_drscan(unsigned int scandata[], unsigned int numbits);
+int jtag_pin_transition(int pinvalues);
 
 // JTAG chain info functions
 int jtag_get_num_taps(void);

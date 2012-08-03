@@ -62,42 +62,25 @@ int dbg_cmd_connect(dbg_cmd_type_connect &connect) {
 
 	dbg_init();
 
-
 	dbg_total_cores = 0;
 	
 	num_chips = dbg_get_num_chips();
 
 	dbg_cmd_ret.data[data_index] = num_chips;
 	data_index++;
+        ret_packet_len += 4;
 	
+        if (num_chips > 0) {
 	for (int i = 0; i < num_chips; i++) {
-          dbg_cmd_ret.data[data_index] = dbg_get_chip_type(i);
-	  data_index++;
-	}
-	
-	for (int i = 0; i < num_chips; i++) {
-	  dbg_cmd_ret.data[data_index] = dbg_get_num_cores_per_chip(i);
-	  dbg_total_cores += dbg_cmd_ret.data[data_index];
-	  data_index++;
+	  dbg_total_cores += dbg_get_num_cores_per_chip(i);
         } 
 	
-	for (int i = 0; i < num_chips; i++) {
-	  dbg_cmd_ret.data[data_index] = dbg_get_num_threads_per_core(i);
-	  data_index++;
-	}
-	
-	for (int i = 0; i < num_chips; i++) {
-	  dbg_cmd_ret.data[data_index] = dbg_get_num_regs_per_thread(i);
-	  data_index++;
-	}
-	
-        if (num_chips > 0) 
+        // TODO - Only removes breakpoints on core 0?
   	  dbg_remove_all_mem_breaks();
+        }
 	
 	dbg_cmd_ret.type = DBG_CMD_CONNECT_ACK;
-	
-	// Just send the whole lot
-	ret_packet_len = sizeof(dbg_cmd_ret);
+        ret_packet_len += 4;
 
 	return ret_packet_len;
 }
@@ -231,7 +214,7 @@ int dbg_cmd_read_mem(dbg_cmd_type_read_mem &read_mem) {
 	unsigned int aligned_address = read_mem.addr & ~3;
 	unsigned int i = 0;
 	unsigned int data_index = 0;
-	
+
 	dbg_select_core_and_thread(read_mem.xcore, dbg_current_thread);
 	
 	if (byte_offset) {
@@ -506,13 +489,13 @@ int dbg_cmd_add_break(dbg_cmd_type_add_break &add_break) {
 	
 	switch (add_break.type) {
 	    case DBG_MEM_BREAK:
-		    dbg_add_mem_break(add_break.address);
+		dbg_add_mem_break(add_break.address);
 	        break;
 	    case DBG_W_WATCH_BREAK:
 	    	dbg_add_memory_watchpoint(add_break.address, add_break.address+add_break.length, WATCHPOINT_WRITE);   
 	        break;
 	    case DBG_R_WATCH_BREAK:
-		    dbg_add_memory_watchpoint(add_break.address, add_break.address+add_break.length, WATCHPOINT_READ);   
+		dbg_add_memory_watchpoint(add_break.address, add_break.address+add_break.length, WATCHPOINT_READ);   
             break; 
 	    case DBG_RES_WATCH_BREAK:
 	    	dbg_add_resource_watchpoint(add_break.address);
@@ -612,7 +595,7 @@ int dbg_cmd_reset(dbg_cmd_type_reset &reset, chanend ?reset_chan) {
 	
   	  dbg_select_core_and_thread(reset.xcore, dbg_current_thread);
 	
-	  dbg_reset(reset.type);
+	  dbg_reset(reset.type, reset_chan);
 
 	  dbg_cmd_ret.type = DBG_CMD_RESET_ACK;
 	  ret_packet_len += 4;
@@ -620,6 +603,16 @@ int dbg_cmd_reset(dbg_cmd_type_reset &reset, chanend ?reset_chan) {
           outuchar(reset_chan, 0);
           outct(reset_chan, 1);
           chkct(reset_chan, 1);
+
+#if 0
+          outuchar(reset_chan, 1);
+          outct(reset_chan, 1);
+          chkct(reset_chan, 1);
+
+          outuchar(reset_chan, 0);
+          outct(reset_chan, 1);
+          chkct(reset_chan, 1);
+#endif
         }
 		
 	return ret_packet_len;	
@@ -653,18 +646,52 @@ int dbg_cmd_get_jtag_chain(dbg_cmd_type_get_jtag_chain &get_jtag_chain) {
         int ret_packet_len = 0;
 	int data_index = 0;
 
-        dbg_cmd_ret.data[data_index] = dbg_get_num_jtag_taps();
-        data_index++;
-
-        for (int i = 0; i < dbg_get_num_jtag_taps(); i++) {
-          dbg_cmd_ret.data[data_index] = dbg_get_jtag_tap_id(i);
+        if (get_jtag_chain.tapid == -1) {
+          dbg_cmd_ret.data[data_index] = dbg_get_num_jtag_taps();
+          data_index++;
+        } else {
+          dbg_cmd_ret.data[data_index] = dbg_get_jtag_tap_id(get_jtag_chain.tapid);
           data_index++;
         }
+        ret_packet_len += 4;
 
         dbg_cmd_ret.type = DBG_CMD_GET_JTAG_CHAIN_ACK;
+        ret_packet_len += 4;
 
-	// Just send the whole lot
-	ret_packet_len = sizeof(dbg_cmd_ret);
+        return ret_packet_len;
+}
+
+int dbg_cmd_jtag_pins(dbg_cmd_type_jtag_pins &jtag_pins) {
+        int ret_packet_len = 0;
+	int data_index = 0;
+
+        dbg_cmd_ret.data[data_index] = dbg_jtag_transition(jtag_pins.pinvalues);
+        ret_packet_len += 4;
+        dbg_cmd_ret.type = DBG_CMD_JTAG_PINS_ACK;
+        ret_packet_len += 4;
+
+        return ret_packet_len;
+}
+
+int dbg_cmd_get_chip_info(dbg_cmd_type_get_chip_info &get_chip_info) {
+        int ret_packet_len = 0;
+	int data_index = 0;
+
+        dbg_cmd_ret.data[data_index] = dbg_get_chip_type(get_chip_info.chipid);
+        data_index++;
+        ret_packet_len += 4;
+        dbg_cmd_ret.data[data_index] = dbg_get_num_cores_per_chip(get_chip_info.chipid);
+        data_index++;
+        ret_packet_len += 4;
+        dbg_cmd_ret.data[data_index] = dbg_get_num_threads_per_core(get_chip_info.chipid);
+        data_index++;
+        ret_packet_len += 4;
+        dbg_cmd_ret.data[data_index] = dbg_get_num_regs_per_thread(get_chip_info.chipid);
+        data_index++;
+        ret_packet_len += 4;
+
+        dbg_cmd_ret.type = DBG_CMD_GET_CHIP_INFO_ACK;
+        ret_packet_len += 4;
 
         return ret_packet_len;
 }
@@ -685,14 +712,14 @@ int dbg_cmd_firmware_version(dbg_cmd_type_firmware_version &firmware_version) {
 }
 
 int dbg_cmd_firmware_reboot(dbg_cmd_type_firmware_reboot &firmware_reboot) {
-	int ret_packet_len = 0;
+         unsigned x;
+  
+         read_sswitch_reg(get_core_id(), 6, x);
+         write_sswitch_reg(get_core_id(), 6, x);
 		
-	dbg_cmd_ret.type = DBG_CMD_FIRMWARE_REBOOT_ACK;
-	ret_packet_len += 4;
-
         // End of current firmware!
 		
-	return ret_packet_len;	
+	return 0;
 }
 
 void dbg_cmd_manager(chanend input, chanend output, chanend reset) {
@@ -766,6 +793,9 @@ void dbg_cmd_manager(chanend input, chanend output, chanend reset) {
                         break;
                 case DBG_CMD_WRITE_JTAG_REG_REQ:
                         dbg_cmd_len = dbg_cmd_write_jtag_reg((dbg_cmd.data, dbg_cmd_type_write_jtag_reg));
+                        break;
+                case DBG_CMD_GET_CHIP_INFO_REQ:
+                        dbg_cmd_len = dbg_cmd_get_chip_info((dbg_cmd.data, dbg_cmd_type_get_chip_info));
                         break;
 #if 0
                 case DBG_CMD_FIRMWARE_VERSION_REQ:
@@ -859,12 +889,18 @@ void dbg_cmd_manager_nochan(int input_size, int input[], int &output_size, int o
                 case DBG_CMD_GET_JTAG_CHAIN_REQ:
                         dbg_cmd_len = dbg_cmd_get_jtag_chain((dbg_cmd.data, dbg_cmd_type_get_jtag_chain));
                         break;
-#if 0
-                case DBG_CMD_FIRMWARE_VERSION_REQ:
-                        dbg_cmd_len = dbg_cmd_firmware_version((dbg_cmd.data, dbg_cmd_type_firmware_version));
+                case DBG_CMD_GET_CHIP_INFO_REQ:
+                        dbg_cmd_len = dbg_cmd_get_chip_info((dbg_cmd.data, dbg_cmd_type_get_chip_info));
+                        break;
+                case DBG_CMD_JTAG_PINS_REQ:
+                        dbg_cmd_len = dbg_cmd_jtag_pins((dbg_cmd.data, dbg_cmd_type_jtag_pins));
                         break;
                 case DBG_CMD_FIRMWARE_REBOOT_REQ:
                         dbg_cmd_len = dbg_cmd_firmware_reboot((dbg_cmd.data, dbg_cmd_type_firmware_reboot));
+                        break;
+#if 0
+                case DBG_CMD_FIRMWARE_VERSION_REQ:
+                        dbg_cmd_len = dbg_cmd_firmware_version((dbg_cmd.data, dbg_cmd_type_firmware_version));
                         break;
 #endif
                 default:

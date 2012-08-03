@@ -2,7 +2,7 @@
 #include <jtag.h>
 #include <stdio.h>
 
-extern unsigned int jtag_data_buffer[32];
+extern unsigned int jtag_data_buffer[128];
 
 static unsigned int jtag_xs1_su_mux_enabled = 0; // 0 - NC, 1 - Debug Tap Enabled
 

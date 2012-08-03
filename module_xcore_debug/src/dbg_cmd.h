@@ -12,8 +12,6 @@
 
 #define DBG_CMD_FIRMWARE_VERSION_REQ 3
 #define DBG_CMD_FIRMWARE_VERSION_ACK 4
-#define DBG_CMD_FIRMWARE_REBOOT_REQ 5
-#define DBG_CMD_FIRMWARE_REBOOT_ACK 6
 
 enum dbg_cmd_type {
    DBG_CMD_NONE,
@@ -56,7 +54,13 @@ enum dbg_cmd_type {
    DBG_CMD_WRITE_JTAG_REG_REQ,
    DBG_CMD_WRITE_JTAG_REG_ACK,
    DBG_CMD_GET_JTAG_CHAIN_REQ,
-   DBG_CMD_GET_JTAG_CHAIN_ACK
+   DBG_CMD_GET_JTAG_CHAIN_ACK,
+   DBG_CMD_GET_CHIP_INFO_REQ,
+   DBG_CMD_GET_CHIP_INFO_ACK,
+   DBG_CMD_JTAG_PINS_REQ,
+   DBG_CMD_JTAG_PINS_ACK,
+   DBG_CMD_FIRMWARE_REBOOT_REQ,
+   DBG_CMD_FIRMWARE_REBOOT_ACK
 };
 
 typedef struct {
@@ -206,7 +210,18 @@ typedef struct {
 } dbg_cmd_type_write_jtag_reg;
 
 typedef struct {
-  unsigned int data[MAX_DBG_CMD_DATA_LEN];
+  int tapid;
+  unsigned int data[MAX_DBG_CMD_DATA_LEN-1];
 } dbg_cmd_type_get_jtag_chain;
+
+typedef struct {
+  int chipid;
+  unsigned int data[MAX_DBG_CMD_DATA_LEN-1];
+} dbg_cmd_type_get_chip_info;
+
+typedef struct {
+  int pinvalues;
+  unsigned int data[MAX_DBG_CMD_DATA_LEN-1];
+} dbg_cmd_type_jtag_pins;
 
 #endif /*DBG_CMD_H_*/

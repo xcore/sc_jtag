@@ -1,4 +1,5 @@
 #include <xs1.h>
+#include <xclib.h>
 #include "jtag.h"
 #include "jtag_otp_access.h"
 #include "dbg_access.h"
@@ -119,11 +120,9 @@ void dbg_speed(int divider)
 
 }
 
-void dbg_reset(int reset_type)
+void dbg_reset(int reset_type, chanend ?reset_chan)
 {
-
-    jtag_reset(reset_type);
-
+    jtag_reset(reset_type, reset_chan);
 }
 
 int dbg_get_num_jtag_taps(void) {
@@ -132,6 +131,10 @@ int dbg_get_num_jtag_taps(void) {
 
 int dbg_get_jtag_tap_id(int index) {
   return jtag_get_tap_id(index);
+}
+
+int dbg_jtag_transition(int pinvalues) {
+  return jtag_pin_transition(pinvalues);
 }
 
 // Core debug mode access
@@ -671,218 +674,149 @@ static unsigned int dbg_rwatch_addr2[4] = {
 
 
 // For the moment
-#define MAX_CHIPS 16
+#define MAX_CHIPS 1024
 #define MAX_CORES_PER_CHIP 4
-#define NUM_BREAKPOINTS 4
+
+// There are 4 physical, reserve 1 for hardware stepping (id 3)
+#define NUM_BREAKPOINTS 3
+
 #define NUM_WATCHPOINTS 4
-#define NUM_RESOURCE_WATCHPOINTS 4
 
-static unsigned char
-    breakpointInUse[MAX_CHIPS][MAX_CORES_PER_CHIP][NUM_BREAKPOINTS];
+// There are 4 physical, reserve 1 for on chip storage (id 3)
+#define NUM_RESOURCE_WATCHPOINTS 3
 
-static unsigned int
-    savedBreakpointCtrl[MAX_CHIPS][MAX_CORES_PER_CHIP][NUM_BREAKPOINTS];
+unsigned int dbg_get_step_thread(void) {
+  unsigned int regValue = dbg_read_proc_state(XS1_RES_TYPE_PS, 0, XS1_PS_DBG_IBREAK_CTRL_3_NUM); 
+  
+  if (!regValue)
+    return 0xdead;
 
-static unsigned int
-    savedBreakpointAddr[MAX_CHIPS][MAX_CORES_PER_CHIP][NUM_BREAKPOINTS];
+  return clz(bitrev(regValue >> 16));
+}
 
-static unsigned char
-    watchpointInUse[MAX_CHIPS][MAX_CORES_PER_CHIP][NUM_WATCHPOINTS];
+void dbg_set_pre_step_thread_mask(unsigned int mask) {
+    // Using resource watchpoint 3 address 1 register to store thread mask
+    dbg_write_proc_state(XS1_RES_TYPE_PS, 0, XS1_PS_DBG_RWATCH_ADDR1_3_NUM, mask);
+}
 
-static unsigned char resWatchpointInUse[MAX_CHIPS][MAX_CORES_PER_CHIP]
-    [NUM_RESOURCE_WATCHPOINTS];
+unsigned int dbg_get_pre_step_thread_mask(void) {
+    // Using resource watchpoint 3 address 1 register to store thread mask
+    return dbg_read_proc_state(XS1_RES_TYPE_PS, 0, XS1_PS_DBG_RWATCH_ADDR1_3_NUM);
+}
 
-static int coreStepped[MAX_CHIPS][MAX_CORES_PER_CHIP];
-static int coreSteppedThread[MAX_CHIPS][MAX_CORES_PER_CHIP];
-static unsigned int coreSteppedThreadMask[MAX_CHIPS][MAX_CORES_PER_CHIP];
-
-void dbg_add_single_step_break(int thread, unsigned int pc)
-{
-
+// Using breakpoint 0;
+void dbg_add_single_step_break(int thread, unsigned int pc) {
     unsigned int ibreakCtrl = ((1 << thread) << 16) | 0x3;
 
-    dbg_write_proc_state(XS1_RES_TYPE_PS, 0, XS1_PS_DBG_IBREAK_CTRL_0_NUM,
+    dbg_write_proc_state(XS1_RES_TYPE_PS, 0, XS1_PS_DBG_IBREAK_CTRL_3_NUM,
 			 ibreakCtrl);
 
-    dbg_write_proc_state(XS1_RES_TYPE_PS, 0, XS1_PS_DBG_IBREAK_ADDR_0_NUM, pc);
+    dbg_write_proc_state(XS1_RES_TYPE_PS, 0, XS1_PS_DBG_IBREAK_ADDR_3_NUM, pc);
 
     // Save stepping state
-    coreStepped[current_chip][current_xcore_id] = 1;
-    coreSteppedThread[current_chip][current_xcore_id] = thread;
-    coreSteppedThreadMask[current_chip][current_xcore_id] = dbg_read_proc_state(XS1_RES_TYPE_PS, 0, (XS1_PS_DBG_RUN_CTRL >> 8) & 0xff);
+    dbg_set_pre_step_thread_mask(dbg_read_proc_state(XS1_RES_TYPE_PS, 0, (XS1_PS_DBG_RUN_CTRL >> 8) & 0xff));
 }
 
-void dbg_remove_single_step_break()
-{
-
-    dbg_write_proc_state(XS1_RES_TYPE_PS, 0, XS1_PS_DBG_IBREAK_CTRL_0_NUM, 0);
-
-    dbg_write_proc_state(XS1_RES_TYPE_PS, 0, XS1_PS_DBG_IBREAK_ADDR_0_NUM, 0);
-
+void dbg_remove_single_step_break() {
+    dbg_write_proc_state(XS1_RES_TYPE_PS, 0, XS1_PS_DBG_IBREAK_CTRL_3_NUM, 0);
+    dbg_write_proc_state(XS1_RES_TYPE_PS, 0, XS1_PS_DBG_IBREAK_ADDR_3_NUM, 0);
     // Restore pre-step state
-    coreStepped[current_chip][current_xcore_id] = 0;
-    coreSteppedThread[current_chip][current_xcore_id] = -1;
-    dbg_write_proc_state(XS1_RES_TYPE_PS, 0, (XS1_PS_DBG_RUN_CTRL >> 8) & 0xff, coreSteppedThreadMask[current_chip][current_xcore_id]);
-    coreSteppedThreadMask[current_chip][current_xcore_id] = 0;
-
+    dbg_write_proc_state(XS1_RES_TYPE_PS, 0, (XS1_PS_DBG_RUN_CTRL >> 8) & 0xff, dbg_get_pre_step_thread_mask());
 }
+
+int dbg_hw_break_at_address(unsigned int address, unsigned int breakNum) {
+    unsigned int regValue = 0;
+
+    if (breakNum > NUM_BREAKPOINTS)
+      return DBG_FAILURE;
+
+    // Checks to see if this breakpoint exists
+    regValue = dbg_read_proc_state(XS1_RES_TYPE_PS, 0, dbg_ibreak_addr[breakNum]);
+
+    if (regValue == address)
+      return DBG_SUCCESS;
+
+    return DBG_FAILURE;
+}
+
 unsigned int dbg_add_mem_break(unsigned int address)
 {
-
     // Finds the first un-used breakpoint..
     unsigned int ibreakCtrl = ((0xFF) << 16) | 0x1;
-
     unsigned int breakpointIndex = NUM_BREAKPOINTS;
 
     for (unsigned int breakNum = 0; breakNum < NUM_BREAKPOINTS; ++breakNum) {
-
-	if (breakpointInUse[current_chip][current_xcore_id][breakNum] == 0) {
-
-	    breakpointIndex = breakNum;
-
-	    breakpointInUse[current_chip][current_xcore_id][breakNum] = 1;
-
-	    break;
-
-	}
-
+      if (dbg_hw_break_at_address(0, breakNum) == DBG_SUCCESS) {
+        breakpointIndex = breakNum;
+        break;
+      }
     }
 
     if (breakpointIndex == NUM_BREAKPOINTS)
+      return DBG_FAILURE;
 
-	return DBG_FAILURE;
-
-    dbg_write_proc_state(XS1_RES_TYPE_PS, 0,
-			 dbg_ibreak_crtl[breakpointIndex], ibreakCtrl);
-
-    dbg_write_proc_state(XS1_RES_TYPE_PS, 0,
-			 dbg_ibreak_addr[breakpointIndex], address);
+    dbg_write_proc_state(XS1_RES_TYPE_PS, 0, dbg_ibreak_crtl[breakpointIndex], ibreakCtrl);
+    dbg_write_proc_state(XS1_RES_TYPE_PS, 0, dbg_ibreak_addr[breakpointIndex], address);
 
     return DBG_SUCCESS;
-
 }
 
 void dbg_remove_all_mem_breaks()
 {
-
-    // Checks to see if this breakpoint exists
     for (unsigned int breakNum = 0; breakNum < NUM_BREAKPOINTS; ++breakNum) {
-
-	dbg_write_proc_state(XS1_RES_TYPE_PS, 0,
-			     dbg_ibreak_crtl[breakNum], 0);
-
-	dbg_write_proc_state(XS1_RES_TYPE_PS, 0,
-			     dbg_ibreak_addr[breakNum], 0);
-
-	breakpointInUse[current_chip][current_xcore_id][breakNum] = 0;
-
+	dbg_write_proc_state(XS1_RES_TYPE_PS, 0, dbg_ibreak_crtl[breakNum], 0);
+	dbg_write_proc_state(XS1_RES_TYPE_PS, 0, dbg_ibreak_addr[breakNum], 0);
     }
 }
+
 void dbg_remove_mem_break(unsigned int address)
 {
-
     // Checks to see if this breakpoint exists
     for (unsigned int breakNum = 0; breakNum < NUM_BREAKPOINTS; ++breakNum) {
-
-	if (breakpointInUse[current_chip][current_xcore_id][breakNum] == 1) {
-
-	    unsigned int regValue = dbg_read_proc_state(XS1_RES_TYPE_PS, 0,
-							dbg_ibreak_addr
-							[breakNum]);
-
-	    if (regValue == address) {
-
-		dbg_write_proc_state(XS1_RES_TYPE_PS, 0,
-				     dbg_ibreak_crtl[breakNum], 0);
-
-		breakpointInUse[current_chip][current_xcore_id][breakNum]
-		    = 0;
-
-		break;
-
-	    }
-
+        if (dbg_hw_break_at_address(address, breakNum) == DBG_SUCCESS) {
+        	dbg_write_proc_state(XS1_RES_TYPE_PS, 0, dbg_ibreak_crtl[breakNum], 0);
+	        dbg_write_proc_state(XS1_RES_TYPE_PS, 0, dbg_ibreak_addr[breakNum], 0);
 	}
-
     }
-
 }
 
 void dbg_disable_mem_breakpoints()
 {
-
     for (unsigned int breakNum = 0; breakNum < NUM_BREAKPOINTS; ++breakNum) {
-
-	if (breakpointInUse[current_chip][current_xcore_id][breakNum] == 1) {
-
-	    savedBreakpointCtrl[current_chip][current_xcore_id][breakNum]
-		=
-		dbg_read_proc_state(XS1_RES_TYPE_PS, 0,
-				    dbg_ibreak_crtl[breakNum]);
-
-	    savedBreakpointAddr[current_chip][current_xcore_id][breakNum]
-		=
-		dbg_read_proc_state(XS1_RES_TYPE_PS, 0,
-				    dbg_ibreak_addr[breakNum]);
-
-	    dbg_write_proc_state(XS1_RES_TYPE_PS, 0,
-				 dbg_ibreak_crtl[breakNum], 0);
-
-	    dbg_write_proc_state(XS1_RES_TYPE_PS, 0,
-				 dbg_ibreak_addr[breakNum], 0);
-
-	}
-
+      dbg_write_proc_state(XS1_RES_TYPE_PS, 0, dbg_ibreak_crtl[breakNum], 0);
     }
-
 }
 
 void dbg_enable_mem_breakpoints()
 {
+    unsigned int ibreakCtrl = ((0xFF) << 16) | 0x1;
 
     for (unsigned int breakNum = 0; breakNum < NUM_BREAKPOINTS; ++breakNum) {
-
-	if (breakpointInUse[current_chip][current_xcore_id][breakNum] == 1) {
-
-	    dbg_write_proc_state(XS1_RES_TYPE_PS, 0,
-				 dbg_ibreak_crtl[breakNum],
-				 savedBreakpointCtrl[current_chip]
-				 [current_xcore_id][breakNum]);
-
-	    dbg_write_proc_state(XS1_RES_TYPE_PS, 0,
-				 dbg_ibreak_addr[breakNum],
-				 savedBreakpointAddr[current_chip]
-				 [current_xcore_id][breakNum]);
-
+        // Checking for address 0 returns unset breakpoints
+        if (dbg_hw_break_at_address(0, breakNum) == DBG_FAILURE) {
+	    dbg_write_proc_state(XS1_RES_TYPE_PS, 0, dbg_ibreak_crtl[breakNum], ibreakCtrl);
 	}
-
     }
-
 }
 
-int dbg_is_mem_breakpoint(unsigned int address)
-{
+int dbg_hw_watchpoint_at_address(unsigned int address1, unsigned int address2, unsigned int watchpointNum)
+{   
+    unsigned int regValue1 = 0;
+    unsigned int regValue2 = 0;
 
-    // Checks to see if this breakpoint exists
-    for (unsigned int breakNum = 0; breakNum < NUM_BREAKPOINTS; ++breakNum) {
+    if (watchpointNum > NUM_WATCHPOINTS)
+      return DBG_FAILURE;
 
-	if (breakpointInUse[current_chip][current_xcore_id][breakNum] == 1) {
+    // Checks to see if this watchpoint exists
+    regValue1 = dbg_read_proc_state(XS1_RES_TYPE_PS, 0, dbg_dwatch_addr1[watchpointNum]);
+    regValue2 = dbg_read_proc_state(XS1_RES_TYPE_PS, 0, dbg_dwatch_addr2[watchpointNum]);
 
-	    unsigned int regValue = dbg_read_proc_state(XS1_RES_TYPE_PS, 0,
-							dbg_ibreak_addr
-							[breakNum]);
-
-	    if (regValue == address)
-
-		return DBG_SUCCESS;
-
-	}
-
-    }
+    if ((regValue1 == address1) && (regValue2 == address2))
+      return DBG_SUCCESS;
 
     return DBG_FAILURE;
-
 }
+
 
 unsigned int dbg_add_memory_watchpoint(unsigned int address1,
 				       unsigned int address2,
@@ -895,43 +829,25 @@ unsigned int dbg_add_memory_watchpoint(unsigned int address1,
     unsigned int dbgWatchCtrl = ((0xFF) << 16) | 0x1;
 
     for (unsigned int watchNum = 0; watchNum < NUM_WATCHPOINTS; ++watchNum) {
-
-	if (watchpointInUse[current_chip][current_xcore_id][watchNum] == 0) {
-
-	    watchpointIndex = watchNum;
-
-	    watchpointInUse[current_chip][current_xcore_id][watchNum] = 1;
-
-	    break;
-
-	}
-
+      if (dbg_hw_watchpoint_at_address(0, 0, watchNum) == DBG_SUCCESS) {
+        watchpointIndex = watchNum;
+        break;
+      }
     }
 
     if (watchpointIndex == NUM_WATCHPOINTS)
-
-	return DBG_FAILURE;
+      return DBG_FAILURE;
 
     switch (watchpointType) {
-
-    case WATCHPOINT_READ:
-
+      case WATCHPOINT_READ:
 	dbgWatchCtrl |= 0x4;
-
 	break;
-
-    case WATCHPOINT_WRITE:
-
+      case WATCHPOINT_WRITE:
 	break;
-
-    case WATCHPOINT_ACCESS:
-
-    default:
-
+      case WATCHPOINT_ACCESS:
+      default:
 	return DBG_FAILURE;
-
 	break;
-
     }
 
     dbg_write_proc_state(XS1_RES_TYPE_PS, 0,
@@ -951,157 +867,90 @@ void dbg_remove_memory_watchpoint(unsigned int address1,
 				  unsigned int address2,
 				  enum WatchpointType watchpointType)
 {
+  // Checks to see if this watchpoint exists
+  for (unsigned int watchNum = 0; watchNum < NUM_WATCHPOINTS; ++watchNum) {
+    if (dbg_hw_watchpoint_at_address(address1, address2, watchNum) == DBG_SUCCESS) {
+      dbg_write_proc_state(XS1_RES_TYPE_PS, 0, dbg_dwatch_crtl[watchNum], 0);
+      dbg_write_proc_state(XS1_RES_TYPE_PS, 0, dbg_dwatch_addr1[watchNum], 0);
+      dbg_write_proc_state(XS1_RES_TYPE_PS, 0, dbg_dwatch_addr2[watchNum], 0);
+      break;
+    }
+  }
+}
+
+int dbg_hw_res_watchpoint_at_address(unsigned int resId, unsigned int mask, unsigned int resWatchNum)
+{
+    unsigned int regValue1 = 0;
+    unsigned int regValue2 = 0;
+
+    if (resWatchNum > NUM_RESOURCE_WATCHPOINTS)
+      return DBG_FAILURE;
 
     // Checks to see if this watchpoint exists
-    for (unsigned int watchNum = 0; watchNum < NUM_WATCHPOINTS; ++watchNum) {
+    regValue1 = dbg_read_proc_state(XS1_RES_TYPE_PS, 0, dbg_rwatch_addr1[resWatchNum]);
+    regValue2 = dbg_read_proc_state(XS1_RES_TYPE_PS, 0, dbg_rwatch_addr2[resWatchNum]);
 
-	if (watchpointInUse[current_chip][current_xcore_id][watchNum] == 1) {
+    if ((regValue2 == resId) && (regValue1 == mask))
+      return DBG_SUCCESS;
 
-	    unsigned int regValue1 =
-		dbg_read_proc_state(XS1_RES_TYPE_PS, 0,
-				    dbg_dwatch_addr1[watchNum]);
-
-	    unsigned int regValue2 =
-		dbg_read_proc_state(XS1_RES_TYPE_PS, 0,
-				    dbg_dwatch_addr2[watchNum]);
-
-	    if ((regValue1 == address1) && (regValue2 == address2)) {
-
-		dbg_write_proc_state(XS1_RES_TYPE_PS, 0,
-				     dbg_dwatch_crtl[watchNum], 0);
-
-		watchpointInUse[current_chip][current_xcore_id][watchNum]
-		    = 0;
-
-		break;
-
-	    }
-
-	}
-
-    }
-
+    return DBG_FAILURE;
 }
+
 
 unsigned int dbg_add_resource_watchpoint(unsigned int resourceId)
 {
-
     // Finds the first un-used resource watchpoint..
     unsigned int watchpointIndex = NUM_RESOURCE_WATCHPOINTS;
-
     unsigned int rWatchCtrl = ((0xFF) << 16) | 0x1;
 
-    for (unsigned int resWatchNum = 0;
-	 resWatchNum < NUM_RESOURCE_WATCHPOINTS; ++resWatchNum) {
-
-	if (resWatchpointInUse[current_chip][current_xcore_id]
-	    [resWatchNum] == 0) {
-
+    for (unsigned int resWatchNum = 0; resWatchNum < NUM_RESOURCE_WATCHPOINTS; ++resWatchNum) {
+      if (dbg_hw_res_watchpoint_at_address(0, 0, resWatchNum) == DBG_SUCCESS) {
 	    watchpointIndex = resWatchNum;
-
-	    resWatchpointInUse[current_chip][current_xcore_id]
-		[resWatchNum] = 1;
-
 	    break;
-
-	}
-
+      }
     }
 
     if (watchpointIndex == NUM_RESOURCE_WATCHPOINTS)
-
 	return DBG_FAILURE;
 
-    dbg_write_proc_state(XS1_RES_TYPE_PS, 0,
-			 dbg_rwatch_crtl[watchpointIndex], rWatchCtrl);
-
-    dbg_write_proc_state(XS1_RES_TYPE_PS, 0,
-			 dbg_rwatch_addr1[watchpointIndex], 0xffffffff);
-
-    dbg_write_proc_state(XS1_RES_TYPE_PS, 0,
-			 dbg_rwatch_addr2[watchpointIndex], resourceId);
+    dbg_write_proc_state(XS1_RES_TYPE_PS, 0, dbg_rwatch_crtl[watchpointIndex], rWatchCtrl);
+    dbg_write_proc_state(XS1_RES_TYPE_PS, 0, dbg_rwatch_addr1[watchpointIndex], 0xffffffff);
+    dbg_write_proc_state(XS1_RES_TYPE_PS, 0, dbg_rwatch_addr2[watchpointIndex], resourceId);
 
     return DBG_SUCCESS;
-
 }
 
 void dbg_remove_resource_watchpoint(unsigned int resourceId)
 {
-
-    // Checks to see if this resource watchpoint exists
-    for (unsigned int resWatchNum = 0;
-	 resWatchNum < NUM_RESOURCE_WATCHPOINTS; ++resWatchNum) {
-
-	if (resWatchpointInUse[current_chip][current_xcore_id]
-	    [resWatchNum] == 1) {
-
-	    unsigned int regValue = dbg_read_proc_state(XS1_RES_TYPE_PS, 0,
-							dbg_rwatch_addr2
-							[resWatchNum]);
-
-	    if (regValue == resourceId) {
-
-		dbg_write_proc_state(XS1_RES_TYPE_PS, 0,
-				     dbg_rwatch_crtl[resWatchNum], 0);
-
-		resWatchpointInUse[current_chip][current_xcore_id]
-		    [resWatchNum] = 0;
-
-		break;
-
-	    }
-
-	}
-
+  // Checks to see if this resource watchpoint exists
+  for (unsigned int resWatchNum = 0; resWatchNum < NUM_RESOURCE_WATCHPOINTS; ++resWatchNum) {
+    if (dbg_hw_res_watchpoint_at_address(resourceId, 0xffffffff, resWatchNum) == DBG_SUCCESS) {
+      dbg_write_proc_state(XS1_RES_TYPE_PS, 0, dbg_rwatch_crtl[resWatchNum], 0);
+      dbg_write_proc_state(XS1_RES_TYPE_PS, 0, dbg_rwatch_addr1[resWatchNum], 0);
+      dbg_write_proc_state(XS1_RES_TYPE_PS, 0, dbg_rwatch_addr2[resWatchNum], 0);
+      break;
     }
-
+  }
 }
 
 void dbg_clear_all_breakpoints()
 {
-
     for (unsigned int breakNum = 0; breakNum < NUM_BREAKPOINTS; ++breakNum) {
-
-	if (breakpointInUse[current_chip][current_xcore_id][breakNum] == 1) {
-
-	    dbg_write_proc_state(XS1_RES_TYPE_PS, 0,
-				 dbg_ibreak_crtl[breakNum], 0);
-
-	    breakpointInUse[current_chip][current_xcore_id][breakNum] = 0;
-
-	}
-
+      dbg_write_proc_state(XS1_RES_TYPE_PS, 0, dbg_ibreak_crtl[breakNum], 0);
+      dbg_write_proc_state(XS1_RES_TYPE_PS, 0, dbg_ibreak_addr[breakNum], 0);
     }
 
     for (unsigned int watchNum = 0; watchNum < NUM_WATCHPOINTS; ++watchNum) {
-
-	if (watchpointInUse[current_chip][current_xcore_id][watchNum] == 1) {
-
-	    dbg_write_proc_state(XS1_RES_TYPE_PS, 0,
-				 dbg_dwatch_crtl[watchNum], 0);
-
-	    watchpointInUse[current_chip][current_xcore_id][watchNum] = 0;
-
-	}
-
+      dbg_write_proc_state(XS1_RES_TYPE_PS, 0, dbg_dwatch_crtl[watchNum], 0);
+      dbg_write_proc_state(XS1_RES_TYPE_PS, 0, dbg_dwatch_addr1[watchNum], 0);
+      dbg_write_proc_state(XS1_RES_TYPE_PS, 0, dbg_dwatch_addr2[watchNum], 0);
     }
 
-    for (unsigned int watchNum = 0; watchNum < NUM_RESOURCE_WATCHPOINTS;
-	 ++watchNum) {
-
-	if (resWatchpointInUse[current_chip][current_xcore_id][watchNum]
-	    == 1) {
-
-	    dbg_write_proc_state(XS1_RES_TYPE_PS, 0,
-				 dbg_rwatch_crtl[watchNum], 0);
-
-	    resWatchpointInUse[current_chip][current_xcore_id][watchNum] =
-		0;
-
-	}
-
+    for (unsigned int watchNum = 0; watchNum < NUM_RESOURCE_WATCHPOINTS; ++watchNum) {
+      dbg_write_proc_state(XS1_RES_TYPE_PS, 0, dbg_rwatch_crtl[watchNum], 0);
+      dbg_write_proc_state(XS1_RES_TYPE_PS, 0, dbg_rwatch_addr1[watchNum], 0);
+      dbg_write_proc_state(XS1_RES_TYPE_PS, 0, dbg_rwatch_addr2[watchNum], 0);
     }
-
 }
 
 
@@ -1345,23 +1194,16 @@ unsigned int, unsigned int, unsigned int, unsigned int,
     dbg_pc = dbg_read_core_reg(dbg_thread, XS1_DBG_T_REG_PC_NUM);
 
     for (int i = 0; i < dbg_get_num_threads_per_core(0); i++) {
-
-	//dbg_thread_state = dbg_read_proc_state(XS1_RES_TYPE_PS, 0,
-	if (XS1_THREAD_CTRL0_INUSE
-	    (dbg_read_proc_state
-	     (XS1_RES_TYPE_THREAD, XS1_RES_PS_CTRL0, i)))
-
-	    dbg_thread_state |= 1 << i;
-
+      if (XS1_THREAD_CTRL0_INUSE (dbg_read_proc_state (XS1_RES_TYPE_THREAD, XS1_RES_PS_CTRL0, i)))
+       dbg_thread_state |= 1 << i;
     }
 
-    if ((coreStepped[current_chip][current_xcore_id] != 0) && (coreSteppedThread[current_chip][current_xcore_id] == dbg_thread)) {
+    if (dbg_get_step_thread() == dbg_thread) {
       dbg_remove_single_step_break();
       dbg_enable_mem_breakpoints();
     }
 
-    return {
-    dbg_type, dbg_data, dbg_thread, dbg_pc, dbg_thread_state};
+    return {dbg_type, dbg_data, dbg_thread, dbg_pc, dbg_thread_state};
 
 }
 

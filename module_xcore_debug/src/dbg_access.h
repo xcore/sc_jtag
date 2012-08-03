@@ -13,6 +13,8 @@ int dbg_get_num_jtag_taps(void);
 
 int dbg_get_jtag_tap_id(int index);
 
+int dbg_jtag_transition(int pinvalues);
+
 int dbg_get_chip_type(int chip_id);
 
 int dbg_get_num_cores_per_chip(int chip_id);
@@ -25,7 +27,7 @@ void dbg_select_xcore(int xcore);
 
 void dbg_speed(int divider);
 
-void dbg_reset(int reset_type);
+void dbg_reset(int reset_type, chanend ?reset_chan);
 
 {
 unsigned int, unsigned int, unsigned int, unsigned int,
