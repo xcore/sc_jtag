@@ -673,6 +673,26 @@ int dbg_cmd_jtag_pins(dbg_cmd_type_jtag_pins &jtag_pins) {
         return ret_packet_len;
 }
 
+int dbg_cmd_jtag_pc_sample(dbg_cmd_type_jtag_pc_sample &jtag_pc_sample) {
+        int ret_packet_len = 0;
+	unsigned int data_index = 0;
+
+        dbg_select_core_and_thread(jtag_pc_sample.xcore, 0);
+
+        dbg_jtag_pc_sample(dbg_cmd_ret.data, data_index);
+        dbg_jtag_pc_sample(dbg_cmd_ret.data, data_index);
+        dbg_jtag_pc_sample(dbg_cmd_ret.data, data_index);
+        dbg_jtag_pc_sample(dbg_cmd_ret.data, data_index);
+
+        ret_packet_len += data_index * 4;
+
+        dbg_cmd_ret.type = DBG_CMD_JTAG_PC_SAMPLE_ACK;
+        ret_packet_len += 4;
+
+        return ret_packet_len;
+}
+
+
 int dbg_cmd_get_chip_info(dbg_cmd_type_get_chip_info &get_chip_info) {
         int ret_packet_len = 0;
 	int data_index = 0;
@@ -894,6 +914,9 @@ void dbg_cmd_manager_nochan(int input_size, int input[], int &output_size, int o
                         break;
                 case DBG_CMD_JTAG_PINS_REQ:
                         dbg_cmd_len = dbg_cmd_jtag_pins((dbg_cmd.data, dbg_cmd_type_jtag_pins));
+                        break;
+                case DBG_CMD_JTAG_PC_SAMPLE_REQ:
+                        dbg_cmd_len = dbg_cmd_jtag_pc_sample((dbg_cmd.data, dbg_cmd_type_jtag_pc_sample));
                         break;
                 case DBG_CMD_FIRMWARE_REBOOT_REQ:
                         dbg_cmd_len = dbg_cmd_firmware_reboot((dbg_cmd.data, dbg_cmd_type_firmware_reboot));

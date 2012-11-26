@@ -137,6 +137,25 @@ int dbg_jtag_transition(int pinvalues) {
   return jtag_pin_transition(pinvalues);
 }
 
+void dbg_jtag_pc_sample(unsigned int samples[], unsigned int &index) {
+  samples[index] = jtag_read_reg(2, 0x40); 
+  index++;
+  samples[index] = jtag_read_reg(2, 0x41); 
+  index++;
+  samples[index] = jtag_read_reg(2, 0x42); 
+  index++;
+  samples[index] = jtag_read_reg(2, 0x43); 
+  index++;
+  samples[index] = jtag_read_reg(2, 0x44); 
+  index++;
+  samples[index] = jtag_read_reg(2, 0x45); 
+  index++;
+  samples[index] = jtag_read_reg(2, 0x46); 
+  index++;
+  samples[index] = jtag_read_reg(2, 0x47); 
+  index++;
+}
+
 // Core debug mode access
 void dbg_enter_debug_mode()
 {
@@ -258,6 +277,7 @@ int dbg_set_thread_mask(int thread_mask)
 // Resource types
 #define DBG_XCORE_CHANEND_RES 0
 #define DBG_XCORE_OTP_RES 1
+#define DBG_XCORE_CHANEND_CTRL 2
 
 int dbg_read_object(unsigned int objectType, unsigned int address)
 {
@@ -269,6 +289,16 @@ int dbg_read_object(unsigned int objectType, unsigned int address)
 
 	return dbg_read_proc_state(XS1_RES_TYPE_CHANEND, XS1_RES_PS_DATA,
 				   XS1_RES_ID_RESNUM(resourceId));
+
+    }
+
+    if (objectType == DBG_XCORE_CHANEND_CTRL) {
+
+        // Must divide the passed addr by 4 to get the actual resource id.
+        unsigned int resourceId = address >> 2;
+
+        return dbg_read_proc_state(XS1_RES_TYPE_CHANEND, XS1_RES_PS_CTRL0,
+                                   XS1_RES_ID_RESNUM(resourceId));
 
     }
 
