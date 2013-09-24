@@ -55,4 +55,7 @@ else
 include ../module_xcommon/build/Makefile.common
 endif
 
-
+=======
+# Use the main Makefile from module_xmos_common
+XMOS_MAKE_PATH ?= ../..
+include $(XMOS_MAKE_PATH)/xcommon/module_xcommon/build/Makefile.common
