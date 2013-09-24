@@ -4,7 +4,11 @@
 #include <stdio.h>
 #include <jtag.h>
 #include <jtag_xs1_su.h>
+#include <jtag_pins.h>
 #include <stdlib.h>
+
+extern clock tck_clk;
+extern clock other_clk;
 
 #define JTAG_MAX_TAPS 256 
 #define JTAG_DATA_BUFFER_WORDS 128   // TODO: relate to the above.
@@ -21,8 +25,7 @@ unsigned int jtag_data_buffer[JTAG_DATA_BUFFER_WORDS];
 #define MUX_XCOREALL 6
 
 // CHIP TAP MUX VALUES
-static unsigned char chip_tap_mux_values[7] =
-  { 0x0, 0x1, 0x8, 0x9, 0xa, 0xb, 0xf };
+static unsigned char chip_tap_mux_values[7] = { 0x0, 0x1, 0x8, 0x9, 0xa, 0xb, 0xf };
 
 // CHIP TAP COMMANDS
 #define SETMUX_IR 0x4
@@ -71,7 +74,7 @@ static unsigned int JTAG_TAP_ID[JTAG_MAX_TAPS];
 static unsigned int JTAG_NUM_XMOS_DEVS = 0;
 static unsigned int JTAG_NUM_XMOS_XCORE = 0;
 static unsigned int JTAG_NUM_XMOS_SU = 0;
-static unsigned char JTAG_XMOS_DEV_MAP[JTAG_MAX_TAPS];
+static unsigned int JTAG_XMOS_DEV_MAP[JTAG_MAX_TAPS];
 static int JTAG_TAP_SINGLE_XCORE = 0;
 static int JTAG_USE_TMS_RESET = 0;
 
@@ -93,12 +96,6 @@ static int NUMDEVSPOST = 0;
 static int NUMBITSPOST = 0;
 static int MAXJTAGCLKSPEED = 0;
 
-// RESET TYPES
-#define XMOS_JTAG_RESET_TRST_SRST 0
-#define XMOS_JTAG_RESET_TRST 1
-#define XMOS_JTAG_RESET_TRST_SRST_JTAG 2
-#define XMOS_JTAG_RESET_TRST_SRST_SPI 3
-
 //#define ENABLE_DEBUG
 #ifdef ENABLE_DEBUG
 #include <stdio.h>
@@ -109,246 +106,32 @@ static int MAXJTAGCLKSPEED = 0;
 
 unsigned char chip_tap_mux_state = MUX_NC;
 
-on stdcore[0]:buffered out port:32 jtag_pin_TDI = XS1_PORT_1A;
-on stdcore[0]:buffered in port:32 jtag_pin_TDO = XS1_PORT_1B;
-on stdcore[0]:buffered out port:4 jtag_pin_TMS = XS1_PORT_1C;
-on stdcore[0]:buffered out port:32 jtag_pin_TCK = XS1_PORT_1D;
-
-on stdcore[0]:out port jtag_pin_SRST = XS1_PORT_1M;
-on stdcore[0]:out port jtag_pin_TRST = XS1_PORT_1L;
-
-on stdcore[0]:clock tck_clk = XS1_CLKBLK_1;
-on stdcore[0]:clock other_clk = XS1_CLKBLK_2;
-
 int jtag_pin_transition(int pinvalues) {
-  unsigned int tdo_output = 0;
-  int tms_value = 0;
-  int tdi_value = 0;
-
-  clearbuf(jtag_pin_TMS);
-  clearbuf(jtag_pin_TDO);
-  clearbuf(jtag_pin_TDI);
-  clearbuf(jtag_pin_TCK);
-
-  if (pinvalues & 0x1) 
-    tms_value = 0x1;
-
-  if (pinvalues & 0x2) 
-    tdi_value = 0x1;
-
-  partout(jtag_pin_TMS, 1, tms_value);
-  partout(jtag_pin_TDI, 1, tdi_value);
-
-  // Output 1 TCK clk
-  partout (jtag_pin_TCK, 2, 0x2);
-  sync(jtag_pin_TCK);
-
-  tdo_output = partin(jtag_pin_TDO, 1);
-
-  return tdo_output;
+  return jtag_transition_pins(pinvalues);
 }
 
-static void
-jtag_reset_srst (chanend ?reset_chan)
-{
-  unsigned s;
-  timer tmr;
-
-  sync (jtag_pin_TCK);
-  clearbuf (jtag_pin_TMS);
-
-  jtag_pin_SRST <:0;
-
-  tmr:>s;
-  tmr when timerafter (s + 40000):>s;
-  jtag_pin_SRST <:1;
-
-  tmr:>s;
-  tmr when timerafter (s + 50000000):>s;
-
-#if 0
-  if (!isnull(reset_chan)) {
-    outuchar(reset_chan, 0);
-    outct(reset_chan, 1);
-    chkct(reset_chan, 1);
-  }
-#endif
-
-  return;
+void jtag_pin_srst(int value) {
+  jtag_drive_srst(value);
 }
 
-static void
-jtag_reset_trst (void)
-{
-
-  if (JTAG_USE_TMS_RESET) {
-    sync (jtag_pin_TCK);
-    clearbuf (jtag_pin_TMS);
-    jtag_pin_TMS <:0xf;
-    partout (jtag_pin_TCK, 8, 0xaa);
-    jtag_pin_TMS <:0x7;
-    partout (jtag_pin_TCK, 8, 0xaa);
-    sync (jtag_pin_TCK);
-  } else {
-    unsigned s;
-    timer tmr;
-    jtag_pin_TRST <:0;
-    tmr:>s;
-    tmr when timerafter (s + 4000):>s;
-    jtag_pin_TRST <:1;
-    tmr when timerafter (s + 4000):>s;
-  }
-
-  return;
+void jtag_pin_trst(int value) {
+  jtag_drive_trst(value);
 }
 
-static void
-jtag_reset_srst_trst (chanend ?reset_chan)
-{
-  unsigned s;
-  timer tmr;
-
-  sync (jtag_pin_TCK);
-  clearbuf (jtag_pin_TMS);
-
-  tmr:>s;
-  tmr when timerafter (s + 4000):>s;
-  jtag_pin_TRST <:0;
-
-  tmr:>s;
-  tmr when timerafter (s + 4000):>s;
-  jtag_pin_SRST <:0;
-
-
-  tmr:>s;
-  tmr when timerafter (s + 40000):>s;
-  jtag_pin_SRST <:1;
-
-  tmr:>s;
-  tmr when timerafter (s + 50000000):>s;
-
-#if 0
-  if (!isnull(reset_chan)) {
-    outuchar(reset_chan, 0);
-    outct(reset_chan, 1);
-    chkct(reset_chan, 1);
-  }
-#endif
-
-
-  tmr:>s;
-  tmr when timerafter (s + 40000):>s;
-  jtag_pin_TRST <:1;
-
-  tmr:>s;
-  tmr when timerafter (s + 4000):>s;
-
-  jtag_pin_TMS <:0xf;
-  partout (jtag_pin_TCK, 8, 0xaa);
-  jtag_pin_TMS <:0x7;
-  partout (jtag_pin_TCK, 8, 0xaa);
-
-
-  return;
+static void jtag_reset_srst (chanend ?reset_chan) {
+  jtag_reset_srst_pins(reset_chan);
 }
 
-void
-jtag_rti_delay (void)
-{
-  int i = 0;
-  jtag_pin_TMS <:0;
-  jtag_pin_TCK <:0xAAAAAAAA;	// 16 CLK's  
-  jtag_pin_TCK <:0xAAAAAAAA;	// 16 CLK's
+static void jtag_reset_trst (void) {
+  jtag_reset_trst_pins(JTAG_USE_TMS_RESET);
 }
 
-#pragma unsafe arrays
-static void
-jtag_irscan_pins (unsigned int scandata[], short num_bits)
-{
-  unsigned short chunks = --num_bits >> 5;
-  unsigned short remainder = num_bits & 31;
-
-  sync (jtag_pin_TCK);
-  clearbuf (jtag_pin_TMS);
-
-  // Move to SHIFT_IR
-jtag_pin_TMS <:3;		// 1100
-  partout (jtag_pin_TCK, 8, 0xAA);	// 4 CLK's RTI->SelectDR->SelectIR->CaptureIR->ShiftIR
-  sync (jtag_pin_TCK);
-
-jtag_pin_TDI <:scandata[0];
-
-  // Do 32 bit chunks
-  for (int i = 1; i <= chunks; i++) {
-  jtag_pin_TCK <:0xAAAAAAAA;	// 16 CLK's  
-  jtag_pin_TCK <:0xAAAAAAAA;	// 16 CLK's
-  jtag_pin_TDI <:scandata[i];
-  }
-
-  if (remainder > 16) {
-  jtag_pin_TCK <:0xAAAAAAAA;
-    partout (jtag_pin_TCK, (2 * (remainder - 16)), 0xAAAAAAAA);
-  }
-  else if (remainder) {
-    partout (jtag_pin_TCK, (2 * remainder), 0xAAAAAAAA);
-  }
-
-  sync (jtag_pin_TCK);
-jtag_pin_TMS <:3;		// 1100
-
-  partout (jtag_pin_TCK, 10, 0xAAA);	// 3 CLK's ShiftIR->Exit1IR->UpdateIR->RTI + 2 In RTI (Crossing clock domains!)
-  sync (jtag_pin_TCK);
-  clearbuf (jtag_pin_TDI);
+static void jtag_reset_srst_trst (chanend ?reset_chan) {
+  jtag_reset_srst_trst_pins(reset_chan);
 }
 
-
-#pragma unsafe arrays
-static void
-jtag_drscan_pins (unsigned int scandata[], short num_bits)
-{
-  int i = 1;
-  unsigned short chunks = --num_bits >> 5;
-  unsigned short remainder = num_bits & 31;
-  unsigned int temp;
-
-  sync (jtag_pin_TCK);
-  clearbuf (jtag_pin_TMS);
-
-  // Move to SHIFT_DR
-jtag_pin_TMS <:1;		// 1000
-  partout (jtag_pin_TCK, 6, 0xAA);	// 3 CLK's RTI->SelectDR->CaptureDR->ShiftDR
-  sync (jtag_pin_TCK);
-
-jtag_pin_TDI <:scandata[0];
-
-  clearbuf (jtag_pin_TDO);
-
-  // Do 8 bit chunks
-  for (i = 1; i <= chunks; i++) {
-  jtag_pin_TCK <:0xAAAAAAAA;	// 16 CLK's
-  jtag_pin_TCK <:0xAAAAAAAA;	// 16 CLK's
-  jtag_pin_TDO:>scandata[i - 1];
-  jtag_pin_TDI <:scandata[i];
-  }
-
-  if (remainder > 16) {
-  jtag_pin_TCK <:0xAAAAAAAA;
-    partout (jtag_pin_TCK, (2 * (remainder - 16)), 0xAAAAAAAA);
-  }
-  else if (remainder) {
-    partout (jtag_pin_TCK, (2 * remainder), 0xAAAAAAAA);
-  }
-
-  sync (jtag_pin_TCK);
-
-jtag_pin_TMS <:3;		// 1100
-  partout (jtag_pin_TCK, 2, 0x2);	// 1 CLK ShiftDR->Exit1DR
-  sync (jtag_pin_TCK);
-  i = endin (jtag_pin_TDO);
-jtag_pin_TDO:>temp;
-  scandata[chunks] = temp >> (32 - i);
-  partout (jtag_pin_TCK, 4, 0xA);	// 2 CLK's Exit1DR->UpdateDR->RTI
-  clearbuf (jtag_pin_TDI);
+void jtag_rti_delay (void) {
+  jtag_rti_delay_pins();
 }
 
 // ---- TAP --- PREV
@@ -611,13 +394,13 @@ jtag_read_idcode (void)
 {
   unsigned idcode = 0x0;
 
-  jtag_data_buffer[0] = 0xf3;
+  jtag_data_buffer[0] = 0xfff3;
 
   if (JTAG_TAP_ID[JTAG_TAP_INDEX] == XCORE_CHAIN_SU_ID) {
     jtag_irscan (jtag_data_buffer, 4);
   }
   else {
-    jtag_irscan (jtag_data_buffer, 8);
+    jtag_irscan (jtag_data_buffer, 16);
   }
 
   jtag_drscan (jtag_data_buffer, 32);
@@ -638,7 +421,6 @@ jtag_query_chain_len (void)
 {
   int i = 0;
   int num_taps = 0;
-  unsigned int xmos_device_map_index = 0;
 
   JTAG_NUM_TAPS = 0;
   JTAG_NUM_XMOS_DEVS = 0;
@@ -660,11 +442,11 @@ jtag_query_chain_len (void)
 
   jtag_drscan_pins (jtag_data_buffer, JTAG_DATA_BUFFER_WORDS * 32);
 
-#if 0
+  /*
     for (i = 15; i >= 0; i--) {
         printf("%08x\n",jtag_data_buffer[i]);
     }
-#endif
+  */
 
   if (jtag_data_buffer[0] != 0xffffffff) {
     for (i = 15; i >= 0; i--) {
@@ -677,10 +459,10 @@ jtag_query_chain_len (void)
     }
   }
 
-#if 0
+  /*
   printstr("Number of JTAG TAPS = ");
   printintln(num_taps);
-#endif
+  */
   if (num_taps ==  0) {      
       return;              // No taps found, or too many.
   }
@@ -717,10 +499,9 @@ jtag_query_chain_len (void)
 
     jtag_drscan_pins (jtag_data_buffer, ((JTAG_NUM_TAPS+31)&~31) + 32);
 
-    xcore_chain_type = jtag_data_buffer[(i>>5)] >> (i&31) |
-        jtag_data_buffer[(i>>5)+1] << (32 - (i&31));
+    xcore_chain_type = jtag_data_buffer[(i>>5)] >> (i&31) | jtag_data_buffer[(i>>5)+1] << (32 - (i&31));
 #if 0
-    printf("%08x  %08x  %08x --> 0x%x chain type\n", jtag_data_buffer[0], 
+    //printf("%08x  %08x  %08x --> 0x%x chain type\n", jtag_data_buffer[0], 
            jtag_data_buffer[1], jtag_data_buffer[2], xcore_chain_type);
 #endif
     JTAG_TAP_ID[i] = xcore_chain_type;
@@ -728,6 +509,11 @@ jtag_query_chain_len (void)
     // reset to bypass
 
   }
+
+#ifdef XTAG_A8DEBUG
+  JTAG_TAP_ID[2] = 0xf7d3;
+  JTAG_TAP_ID[3] = 0xf7d3;
+#endif
 
   // Set up XMOS device map
   for (i = 0; i < JTAG_NUM_TAPS; i++) {
@@ -818,6 +604,7 @@ jtag_chip_tap_reg_access (unsigned int command, unsigned int data,
   }
   else {
     jtag_data_buffer[0] = 0xf << 4 | command;
+    //printf("SETMUX FROM NC\n");
     jtag_irscan (jtag_data_buffer, 8);
     jtag_data_buffer[0] = data;	//(unsigned char)data;
     jtag_data_buffer[1] = 0x0;
@@ -950,12 +737,11 @@ jtag_module_otp_shift_data (unsigned int chipmodule, unsigned int data)
 void
 jtag_select_xmos_tap (int chip_id, unsigned int type)
 {
-  int i = 0;
   unsigned int loc_id = 0;
 
   jtag_shift_bypass_to_all ();
 
-  for (i = JTAG_NUM_XMOS_DEVS - 1; i >= 0; i--) {
+  for (int i = JTAG_NUM_XMOS_DEVS - 1; i >= 0; i--) {
     unsigned int tap_id = JTAG_TAP_ID[JTAG_XMOS_DEV_MAP[i]];
     if ((tap_id == XCORE_CHAIN_G4_ID) || (tap_id == XCORE_CHAIN_G1_ID)) {
       if (loc_id == chip_id) {
@@ -998,6 +784,8 @@ jtag_select_tap (unsigned int index)
     JTAG_TAP_INDEX = index;
     return current_tap;
   }
+
+  return 0;
 }
 
 // XCore info functions
@@ -1063,11 +851,8 @@ void
 jtag_reset (int reset_type, chanend ?reset_chan)
 {
   unsigned int saved_tap_index = JTAG_TAP_INDEX;
-  unsigned s;
-  timer tmr;
 
   //printf ("JTAG RESET %d\n", reset_type);
-
 
   if (reset_type == XMOS_JTAG_RESET_TRST_SRST) {
     jtag_reset_srst (reset_chan);
@@ -1085,7 +870,7 @@ jtag_reset (int reset_type, chanend ?reset_chan)
 
   chip_tap_mux_state = MUX_NC;
   jtag_query_chain_len ();
-  jtag_shift_bypass_to_all ();
+  //jtag_shift_bypass_to_all ();
 
   if (saved_tap_index != -1) {
     JTAG_TAP_INDEX = saved_tap_index;
@@ -1139,19 +924,13 @@ jtag_init (void)
     if (JTAG_TCK_SPEED_DIV == -1) {
       configure_clock_rate (tck_clk, 100, 6);
     }
-    configure_out_port (jtag_pin_TCK, tck_clk, 0xffffffff);
 
-    configure_clock_src (other_clk, jtag_pin_TCK);
-    configure_out_port (jtag_pin_TDI, other_clk, 0);
-    configure_in_port (jtag_pin_TDO, other_clk);
-    configure_out_port (jtag_pin_TMS, other_clk, 0);
-
-    //configure_out_port(jtag_pin_TRST, tck_clk, 0);
-    configure_out_port (jtag_pin_SRST, tck_clk, 1);
+    jtag_init_pins();
 
     if (JTAG_TCK_SPEED_DIV == -1) {
       start_clock (tck_clk);
     }
+
     start_clock (other_clk);
 
     tmr:>s;
@@ -1160,8 +939,7 @@ jtag_init (void)
     jtag_started = 1;
   }
 
-  clearbuf (jtag_pin_TDI);
-  clearbuf (jtag_pin_TDO);
+  jtag_clear_pins();
 
   if (JTAG_TCK_SPEED_DIV == -1) {
     jtag_tck_speed (4);		// Speed down to 6 MHz on before first reset

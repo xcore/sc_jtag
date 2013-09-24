@@ -15,6 +15,8 @@ int dbg_get_jtag_tap_id(int index);
 
 int dbg_jtag_transition(int pinvalues);
 
+void dbg_jtag_pc_sample(unsigned int samples[], unsigned int &index);
+
 int dbg_get_chip_type(int chip_id);
 
 int dbg_get_num_cores_per_chip(int chip_id);

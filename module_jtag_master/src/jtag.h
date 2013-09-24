@@ -15,6 +15,14 @@
 #define MUX_XCORE3 5
 #define MUX_XCOREALL 6
 
+// RESET TYPES
+#define XMOS_JTAG_RESET_TRST_SRST 0
+#define XMOS_JTAG_RESET_TRST 1
+#define XMOS_JTAG_RESET_TRST_SRST_JTAG 2
+#define XMOS_JTAG_RESET_TRST_SRST_SPI 3
+#define XMOS_JTAG_RESET_TRST_DRIVE_LOW 4
+#define XMOS_JTAG_RESET_TRST_DRIVE_HIGH 5
+
 void jtag_init(void);
 void jtag_deinit(void);
 void jtag_speed(int divider);
@@ -39,6 +47,8 @@ void jtag_rti_delay(void);
 void jtag_irscan(unsigned int scandata[], unsigned int numbits);
 void jtag_drscan(unsigned int scandata[], unsigned int numbits);
 int jtag_pin_transition(int pinvalues);
+void jtag_pin_srst(int pinvalue);
+void jtag_pin_trst(int pinvalue);
 
 // JTAG chain info functions
 int jtag_get_num_taps(void);

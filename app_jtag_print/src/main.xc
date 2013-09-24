@@ -15,6 +15,8 @@ void run(void)
         for (int i = 0; i < jtag_get_num_taps(); i++) {
             printf("JTAG TAP ID [%d] = 0x%x\n", i, jtag_get_tap_id(i));
         }
+        dbg_enter_debug_mode();
+        printf("0x%x", dbg_read_core_reg(0,16));
         dbg_deinit();
 }
 

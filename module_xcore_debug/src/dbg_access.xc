@@ -3,7 +3,9 @@
 #include "jtag.h"
 #include "jtag_otp_access.h"
 #include "dbg_access.h"
+#include "dbg_soft_reset_code.h"
 #include <stdio.h>
+#include <xs1.h>
 
 #define DBG_SSWITCH 1
 #define DBG_XCORE0 2
@@ -14,11 +16,35 @@
 #define DBG_SUCCESS 1
 #define DBG_FAILURE 0
 
+#define JTAG_LED0_PIN 28
+#define JTAG_LED1_PIN 29
+#define JTAG_LED2_PIN 30
+#define JTAG_LED3_PIN 31
+
+#ifdef XTAG_U8
+out port LEDS = XS1_PORT_4C;
+#endif
+
+extern void jtag_combined_pins(unsigned int bit, unsigned int enable);
+
 unsigned short current_xcore_id;
 
 unsigned short current_module = DBG_XCORE0;
 
 unsigned short current_chip = 0;
+
+static void dbg_drive_status_leds(unsigned int mask) {
+#ifdef XTAG_U8
+  LEDS <: mask;
+#endif
+}
+
+static void dbg_delay(unsigned int delay) {
+  unsigned s;
+  timer tmr;
+  tmr:>s;
+  tmr when timerafter(s + delay):>s;
+}
 
 void dbg_select_chip(int chip_id, int chip_type)
 {
@@ -120,9 +146,77 @@ void dbg_speed(int divider)
 
 }
 
+#ifdef XTAG_USE_SOFT_MSEL_SRST
+
+extern out port external_io_reset_port;
+
+static void dbg_soft_reset() {
+  unsigned int soft_reset_code_start_addr = 0x10000;
+  unsigned int soft_reset_code_words = sizeof(dbg_soft_reset_code)/4;
+
+  // Select chip 0
+  dbg_select_chip(0,0);
+
+  // Select xcore 0
+  dbg_select_xcore(0);
+
+  // Make sure tile is in dbg mode
+  dbg_enter_debug_mode();
+
+  // Load reset code into tile
+  for (int i = 0; i < soft_reset_code_words; i++) {
+    dbg_write_mem_word(soft_reset_code_start_addr + (i * 4), dbg_soft_reset_code[i]);
+  }
+
+  // Set PC to start of reset code
+  dbg_write_core_reg(0, XS1_DBG_T_REG_PC_NUM, soft_reset_code_start_addr);
+
+  // Disable interupts and events for return from debug mode
+  dbg_write_core_reg(0, XS1_DBG_T_REG_SR_NUM, 0x0);
+
+  // Trigger the external io reset pin
+  external_io_reset_port <: 0;
+  dbg_delay(100000);
+  external_io_reset_port <: 1;
+
+  // Take tile out of debug mode 
+  dbg_exit_debug_mode();
+
+  // Give the reset code some time to complete
+  dbg_delay(10000000);
+
+
+  return;
+}
+#endif
+
 void dbg_reset(int reset_type, chanend ?reset_chan)
 {
+#ifdef XTAG_USE_SOFT_MSEL_SRST
+    // Soft reset by loading code handled at xcore debug level not at pin level due to loading code to perform reset
+    if (reset_type == XMOS_JTAG_RESET_TRST_SRST) {
+      dbg_soft_reset();
+      // This can go through, TRST / MSEL always wired and SRST is a nop at JTAG level
+      jtag_reset(reset_type, reset_chan);
+    } else if (reset_type == XMOS_JTAG_RESET_TRST) {
+      // This can go through, TRST / MSEL always wired
+      jtag_reset(reset_type, reset_chan);
+    } else if (reset_type == XMOS_JTAG_RESET_TRST_SRST_JTAG) {
+      jtag_pin_trst(0);
+      dbg_soft_reset();
+      jtag_pin_trst(1);
+      // This can go through, soft reset only resets tap state with combined reset
+      jtag_reset(reset_type, reset_chan);
+    } else if (reset_type == XMOS_JTAG_RESET_TRST_DRIVE_LOW) {
+      jtag_pin_trst(0);
+    } else if (reset_type == XMOS_JTAG_RESET_TRST_DRIVE_HIGH) {
+      jtag_pin_trst(1);
+    } else {
+      return;
+    }
+#else
     jtag_reset(reset_type, reset_chan);
+#endif
 }
 
 int dbg_get_num_jtag_taps(void) {
@@ -137,10 +231,30 @@ int dbg_jtag_transition(int pinvalues) {
   return jtag_pin_transition(pinvalues);
 }
 
+void dbg_jtag_pc_sample(unsigned int samples[], unsigned int &index) {
+  samples[index] = jtag_read_reg(2, 0x40); 
+  index++;
+  samples[index] = jtag_read_reg(2, 0x41); 
+  index++;
+  samples[index] = jtag_read_reg(2, 0x42); 
+  index++;
+  samples[index] = jtag_read_reg(2, 0x43); 
+  index++;
+  samples[index] = jtag_read_reg(2, 0x44); 
+  index++;
+  samples[index] = jtag_read_reg(2, 0x45); 
+  index++;
+  samples[index] = jtag_read_reg(2, 0x46); 
+  index++;
+  samples[index] = jtag_read_reg(2, 0x47); 
+  index++;
+}
+
 // Core debug mode access
 void dbg_enter_debug_mode()
 {
 
+    dbg_drive_status_leds(0xa);
     jtag_write_reg(current_module, XS1_PSWITCH_DBG_INT_NUM, 1);
 
 }
@@ -152,6 +266,7 @@ void dbg_exit_debug_mode()
 
     jtag_write_reg(current_module, XS1_PSWITCH_DBG_COMMAND_NUM,
 		   XS1_DBG_CMD_RFDBG);
+    dbg_drive_status_leds(0x5);
 
 }
 
@@ -162,10 +277,12 @@ int dbg_in_debug_mode()
 
     dbg_int_reg = jtag_read_reg(current_module, XS1_PSWITCH_DBG_INT_NUM);
 
-    if (XS1_DBG_INT_IN_DBG(dbg_int_reg) == 1)
-
+    if (XS1_DBG_INT_IN_DBG(dbg_int_reg) == 1) {
+        dbg_drive_status_leds(0xa);
 	return DBG_SUCCESS;
+    }
 
+    dbg_drive_status_leds(0x5);
     return DBG_FAILURE;
 
 }
@@ -258,6 +375,9 @@ int dbg_set_thread_mask(int thread_mask)
 // Resource types
 #define DBG_XCORE_CHANEND_RES 0
 #define DBG_XCORE_OTP_RES 1
+#define DBG_XCORE_CTRL_RES 2
+#define DBG_XCORE_THREAD_CTRL_RES 3
+#define DBG_XCORE_TIMER_CTRL_RES 4
 
 int dbg_read_object(unsigned int objectType, unsigned int address)
 {
@@ -268,6 +388,36 @@ int dbg_read_object(unsigned int objectType, unsigned int address)
 	unsigned int resourceId = address >> 2;
 
 	return dbg_read_proc_state(XS1_RES_TYPE_CHANEND, XS1_RES_PS_DATA,
+				   XS1_RES_ID_RESNUM(resourceId));
+
+    }
+
+    if (objectType == DBG_XCORE_CTRL_RES) {
+
+	// Must divide the passed addr by 4 to get the actual resource id.
+	unsigned int resourceId = address >> 2;
+
+	return dbg_read_proc_state(XS1_RES_TYPE_CHANEND, XS1_RES_PS_CTRL0,
+				   XS1_RES_ID_RESNUM(resourceId));
+
+    }
+
+    if (objectType == DBG_XCORE_THREAD_CTRL_RES) {
+
+	// Must divide the passed addr by 4 to get the actual resource id.
+	unsigned int resourceId = address >> 2;
+
+	return dbg_read_proc_state(XS1_RES_TYPE_THREAD, XS1_RES_PS_CTRL0,
+				   XS1_RES_ID_RESNUM(resourceId));
+
+    }
+
+    if (objectType == DBG_XCORE_TIMER_CTRL_RES) {
+
+	// Must divide the passed addr by 4 to get the actual resource id.
+	unsigned int resourceId = address >> 2;
+
+	return dbg_read_proc_state(XS1_RES_TYPE_TIMER, XS1_RES_PS_CTRL0,
 				   XS1_RES_ID_RESNUM(resourceId));
 
     }
@@ -1142,9 +1292,6 @@ void dbg_wait_single_step()
     // i.e. we are back in debug mode and the pc has changed.
     unsigned int completedSingleStep = 0;
 
-    unsigned s;
-
-    timer tmr;
 
     interrupt_step_operation = 0;
 
@@ -1152,10 +1299,8 @@ void dbg_wait_single_step()
 
 	// Need to wait for a while here to make sure that we actually exit
 	// debug mode, before checking that we have entered it again.
-	//Delay(10000);
-      tmr:>s;
 
-	tmr when timerafter(s + 10000):>s;
+        dbg_delay(10000);
 
 	completedSingleStep = dbg_in_debug_mode();
 

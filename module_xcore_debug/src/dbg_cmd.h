@@ -59,6 +59,12 @@ enum dbg_cmd_type {
    DBG_CMD_GET_CHIP_INFO_ACK,
    DBG_CMD_JTAG_PINS_REQ,
    DBG_CMD_JTAG_PINS_ACK,
+   DBG_CMD_JTAG_PC_SAMPLE_REQ,
+   DBG_CMD_JTAG_PC_SAMPLE_ACK,
+   DBG_CMD_UPLOAD_XSCOPE_DATA_REQ,
+   DBG_CMD_UPLOAD_XSCOPE_DATA_ACK,
+   DBG_CMD_CONNECT_XSCOPE_CHANNEL_REQ,
+   DBG_CMD_CONNECT_XSCOPE_CHANNEL_ACK,
    DBG_CMD_FIRMWARE_REBOOT_REQ,
    DBG_CMD_FIRMWARE_REBOOT_ACK
 };
@@ -215,6 +221,16 @@ typedef struct {
 } dbg_cmd_type_get_jtag_chain;
 
 typedef struct {
+  unsigned int len;
+  unsigned int data[MAX_DBG_CMD_DATA_LEN-1];
+} dbg_cmd_type_upload_xscope_data;
+
+typedef struct {
+  unsigned int channelEnd;
+  unsigned int data[MAX_DBG_CMD_DATA_LEN-1];
+} dbg_cmd_type_connect_xscope_channel;
+
+typedef struct {
   int chipid;
   unsigned int data[MAX_DBG_CMD_DATA_LEN-1];
 } dbg_cmd_type_get_chip_info;
@@ -223,5 +239,10 @@ typedef struct {
   int pinvalues;
   unsigned int data[MAX_DBG_CMD_DATA_LEN-1];
 } dbg_cmd_type_jtag_pins;
+
+typedef struct {
+  unsigned int xcore;
+  unsigned int data[MAX_DBG_CMD_DATA_LEN-1];
+} dbg_cmd_type_jtag_pc_sample;
 
 #endif /*DBG_CMD_H_*/

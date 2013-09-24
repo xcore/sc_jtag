@@ -13,7 +13,7 @@
 #include <jtag.h>
 
 #define XTAG2_FIRMWARE_TYPE 10
-#define XTAG2_FIRMWARE_MAJOR_VER 2
+#define XTAG2_FIRMWARE_MAJOR_VER 5
 #define XTAG2_FIRMWARE_MINOR_VER 0
 
 static dbg_cmd_packet dbg_cmd;
@@ -38,7 +38,7 @@ static void dbg_select_core_and_thread(int xcore, int thread) {
   }
 }
 
-int dbg_cmd_connect(dbg_cmd_type_connect &connect) {
+int dbg_cmd_connect(dbg_cmd_type_connect &connect, chanend ?util_command) {
 	int data_index = 0;
 	int ret_packet_len = 0;
 	int num_chips = 0;
@@ -51,7 +51,7 @@ int dbg_cmd_connect(dbg_cmd_type_connect &connect) {
 	// NUM_CHIPS * NUM_REGS_PER_THREAD
  
          //printintln(connect.jtag_speed);
-
+    
         if (connect.jtag_speed != -1) {
           dbg_speed(connect.jtag_speed);
         }
@@ -59,6 +59,10 @@ int dbg_cmd_connect(dbg_cmd_type_connect &connect) {
         //dbg_chain(connect.jtag_devs_pre, connect.jtag_bits_pre,
         //          connect.jtag_devs_post, connect.jtag_bits_post,
         //          connect.jtag_max_speed);
+
+        // Clear xSCOPE upload buffer state
+        outuint(util_command, 3);
+        chkct(util_command, 1);
 
 	dbg_init();
 
@@ -81,7 +85,7 @@ int dbg_cmd_connect(dbg_cmd_type_connect &connect) {
 	
 	dbg_cmd_ret.type = DBG_CMD_CONNECT_ACK;
         ret_packet_len += 4;
-
+    
 	return ret_packet_len;
 }
 
@@ -580,41 +584,34 @@ int dbg_cmd_interrupt(dbg_cmd_type_interrupt &interrupt) {
 	return ret_packet_len;	
 }
 
-int dbg_cmd_reset(dbg_cmd_type_reset &reset, chanend ?reset_chan) {
+static void reset_handler(char cmd, chanend ?reset_signal_a, chanend ?reset_signal_b) {
+
+  //outuchar(reset_signal_b, cmd);
+  //chkct(reset_signal_b, 1);
+  outuchar(reset_signal_a, cmd);
+  outct(reset_signal_a, 1);
+  chkct(reset_signal_a, 1);
+  //outct(reset_signal_b, 1);
+
+}
+
+int dbg_cmd_reset(dbg_cmd_type_reset &reset, chanend ?reset_signal_a, chanend ?reset_signal_b) {
 	int ret_packet_len = 0;
 
         if (reset.type == 64) {
           // Post application load reset - resync xlinks
-          outuchar(reset_chan, 2);
-          outct(reset_chan, 1);
-          chkct(reset_chan, 1);
+          reset_handler(2, reset_signal_a, reset_signal_b);
+        } else if ((reset.type == 4) || (reset.type == 5)) {
+	  dbg_reset(reset.type, reset_signal_a);
         } else {
-          outuchar(reset_chan, 1);
-          outct(reset_chan, 1);
-          chkct(reset_chan, 1);
-	
+          reset_handler(1, reset_signal_a, reset_signal_b);
   	  dbg_select_core_and_thread(reset.xcore, dbg_current_thread);
-	
-	  dbg_reset(reset.type, reset_chan);
-
-	  dbg_cmd_ret.type = DBG_CMD_RESET_ACK;
-	  ret_packet_len += 4;
-
-          outuchar(reset_chan, 0);
-          outct(reset_chan, 1);
-          chkct(reset_chan, 1);
-
-#if 0
-          outuchar(reset_chan, 1);
-          outct(reset_chan, 1);
-          chkct(reset_chan, 1);
-
-          outuchar(reset_chan, 0);
-          outct(reset_chan, 1);
-          chkct(reset_chan, 1);
-#endif
+	  dbg_reset(reset.type, reset_signal_a);
+          reset_handler(0, reset_signal_a, reset_signal_b);
         }
 		
+	dbg_cmd_ret.type = DBG_CMD_RESET_ACK;
+	ret_packet_len += 4;
 	return ret_packet_len;	
 }
 
@@ -673,6 +670,26 @@ int dbg_cmd_jtag_pins(dbg_cmd_type_jtag_pins &jtag_pins) {
         return ret_packet_len;
 }
 
+int dbg_cmd_jtag_pc_sample(dbg_cmd_type_jtag_pc_sample &jtag_pc_sample) {
+        int ret_packet_len = 0;
+	unsigned int data_index = 0;
+
+        dbg_select_core_and_thread(jtag_pc_sample.xcore, 0);
+
+        dbg_jtag_pc_sample(dbg_cmd_ret.data, data_index);
+        dbg_jtag_pc_sample(dbg_cmd_ret.data, data_index);
+        dbg_jtag_pc_sample(dbg_cmd_ret.data, data_index);
+        dbg_jtag_pc_sample(dbg_cmd_ret.data, data_index);
+
+        ret_packet_len += data_index * 4;
+
+        dbg_cmd_ret.type = DBG_CMD_JTAG_PC_SAMPLE_ACK;
+        ret_packet_len += 4;
+
+        return ret_packet_len;
+}
+
+
 int dbg_cmd_get_chip_info(dbg_cmd_type_get_chip_info &get_chip_info) {
         int ret_packet_len = 0;
 	int data_index = 0;
@@ -722,105 +739,49 @@ int dbg_cmd_firmware_reboot(dbg_cmd_type_firmware_reboot &firmware_reboot) {
 	return 0;
 }
 
-void dbg_cmd_manager(chanend input, chanend output, chanend reset) {
-	
-	while (1) {
-		unsigned int dbg_cmd_len = 0;
-		
-	    // DATA IN FROM HOST
-		input :> dbg_cmd_len;
-		input :> dbg_cmd.type;
-		
-		dbg_cmd_len -= 4;
-		for (int i = 0; i < dbg_cmd_len >> 2; i++) {
-		   input :> dbg_cmd.data[i];
-		}
+int dbg_cmd_upload_xscope_data(dbg_cmd_type_upload_xscope_data &xscope_data, chanend ?util_command) {
+	int ret_packet_len = 0;
+        unsigned int accepted = 0;
+        unsigned int remaining = 0;
+         
+        outuint(util_command, 2);
+        outuint(util_command, xscope_data.len);
+        outct(util_command, 1);
 
-		switch (dbg_cmd.type) {
-		case DBG_CMD_CONNECT_REQ:
-			dbg_cmd_len = dbg_cmd_connect((dbg_cmd.data, dbg_cmd_type_connect));
-			break;
-		case DBG_CMD_DISCONNECT_REQ:
-			dbg_cmd_len = dbg_cmd_disconnect((dbg_cmd.data, dbg_cmd_type_disconnect));
-			break;
-		case DBG_CMD_GET_CORE_STATE_REQ:
-			dbg_cmd_len = dbg_cmd_get_core_state((dbg_cmd.data, dbg_cmd_type_get_core_state));
-			break;
-		case DBG_CMD_ENABLE_THREAD_REQ:
-			dbg_cmd_len = dbg_cmd_enable_thread((dbg_cmd.data, dbg_cmd_type_enable_thread));
-			break;
-		case DBG_CMD_DISABLE_THREAD_REQ:
-			dbg_cmd_len = dbg_cmd_disable_thread((dbg_cmd.data, dbg_cmd_type_disable_thread));
-		    break;
-		case DBG_CMD_READ_REGS_REQ:
-			dbg_cmd_len = dbg_cmd_read_regs((dbg_cmd.data, dbg_cmd_type_read_regs));
-			break;
-		case DBG_CMD_WRITE_REGS_REQ:
-			dbg_cmd_len = dbg_cmd_write_regs((dbg_cmd.data, dbg_cmd_type_write_regs));
-			break;
-		case DBG_CMD_READ_MEM_REQ:
-			dbg_cmd_len = dbg_cmd_read_mem((dbg_cmd.data, dbg_cmd_type_read_mem));
-			break;
-		case DBG_CMD_WRITE_MEM_REQ:
-			dbg_cmd_len = dbg_cmd_write_mem((dbg_cmd.data, dbg_cmd_type_write_mem));
-			break;
-		case DBG_CMD_READ_OBJ_REQ:
-			dbg_cmd_len = dbg_cmd_read_obj((dbg_cmd.data, dbg_cmd_type_read_obj));
-			break;
-		case DBG_CMD_STEP_REQ:
-			dbg_cmd_len = dbg_cmd_step((dbg_cmd.data, dbg_cmd_type_step));
-			break;
-		case DBG_CMD_CONTINUE_REQ:
-			dbg_cmd_len = dbg_cmd_continue((dbg_cmd.data, dbg_cmd_type_continue));
-			break;
-		case DBG_CMD_ADD_BREAK_REQ:
-			dbg_cmd_len = dbg_cmd_add_break((dbg_cmd.data, dbg_cmd_type_add_break));
-			break;
-		case DBG_CMD_REMOVE_BREAK_REQ:
-			dbg_cmd_len = dbg_cmd_remove_break((dbg_cmd.data, dbg_cmd_type_remove_break));
-			break;
-		case DBG_CMD_GET_STATUS_REQ:
-			dbg_cmd_len = dbg_cmd_get_status((dbg_cmd.data, dbg_cmd_type_get_status));
-			break;
-		case DBG_CMD_INTERRUPT_REQ:
-			dbg_cmd_len = dbg_cmd_interrupt((dbg_cmd.data, dbg_cmd_type_interrupt));
-			break;
-		case DBG_CMD_RESET_REQ:
-			dbg_cmd_len = dbg_cmd_reset((dbg_cmd.data, dbg_cmd_type_reset), reset);
-			break;
-                case DBG_CMD_READ_JTAG_REG_REQ:
-                        dbg_cmd_len = dbg_cmd_read_jtag_reg((dbg_cmd.data, dbg_cmd_type_read_jtag_reg));
-                        break;
-                case DBG_CMD_WRITE_JTAG_REG_REQ:
-                        dbg_cmd_len = dbg_cmd_write_jtag_reg((dbg_cmd.data, dbg_cmd_type_write_jtag_reg));
-                        break;
-                case DBG_CMD_GET_CHIP_INFO_REQ:
-                        dbg_cmd_len = dbg_cmd_get_chip_info((dbg_cmd.data, dbg_cmd_type_get_chip_info));
-                        break;
-#if 0
-                case DBG_CMD_FIRMWARE_VERSION_REQ:
-                        dbg_cmd_len = dbg_cmd_firmware_version((dbg_cmd.data, dbg_cmd_type_firmware_version));
-                        break;
-                case DBG_CMD_FIRMWARE_REBOOT_REQ:
-                        dbg_cmd_len = dbg_cmd_firmware_reboot((dbg_cmd.data, dbg_cmd_type_firmware_reboot));
-                        break;
-#endif
-		default:
-			break;
-		}
-		
-		// DATA OUT TO HOST
+        accepted = inuint(util_command);
 
-		output <: dbg_cmd_len;
-		output <: dbg_cmd_ret.type;
-		dbg_cmd_len -= 4;
-		for (int i = 0; i < dbg_cmd_len >> 2; i++) {
-		    output <: dbg_cmd_ret.data[i];
-		}
-	}
+        if (accepted == 1) { 
+           for (int i = 0; i < xscope_data.len; i++) {
+             char databyte = (xscope_data.data, char[])[i];
+             outuchar(util_command, databyte);
+           }
+        }
+
+        remaining = inuint(util_command);
+        chkct(util_command, 1);
+
+	dbg_cmd_ret.type = DBG_CMD_UPLOAD_XSCOPE_DATA_ACK;
+	ret_packet_len += 4;
+        dbg_cmd_ret.data[0] = accepted;
+	ret_packet_len += 4;
+        dbg_cmd_ret.data[1] = remaining;
+	ret_packet_len += 4;
+
+	return ret_packet_len;	
 }
 
-void dbg_cmd_manager_nochan(int input_size, int input[], int &output_size, int output[], chanend reset) {
+int dbg_cmd_connect_xscope_channel(dbg_cmd_type_connect_xscope_channel &xscope_channel, chanend ?util_command) {
+	int ret_packet_len = 0;
+	dbg_cmd_ret.type = DBG_CMD_CONNECT_XSCOPE_CHANNEL_ACK;
+        outuint(util_command, 1);
+        outuint(util_command, xscope_channel.channelEnd);
+        outct(util_command, 1);
+        chkct(util_command, 1);
+	ret_packet_len += 4;
+	return ret_packet_len;	
+}
+
+void dbg_cmd_manager_nochan(int input_size, int input[], int &output_size, int output[], chanend ?reset_signal_a, chanend ?reset_signal_b, chanend ?util_command) {
                 unsigned int dbg_cmd_len = 0;
  
                 dbg_cmd.type = input[0];
@@ -830,7 +791,7 @@ void dbg_cmd_manager_nochan(int input_size, int input[], int &output_size, int o
 
                 switch (dbg_cmd.type) {
                 case DBG_CMD_CONNECT_REQ:
-                        dbg_cmd_len = dbg_cmd_connect((dbg_cmd.data, dbg_cmd_type_connect));
+                        dbg_cmd_len = dbg_cmd_connect((dbg_cmd.data, dbg_cmd_type_connect), util_command);
                         break;
                 case DBG_CMD_DISCONNECT_REQ:
                         dbg_cmd_len = dbg_cmd_disconnect((dbg_cmd.data, dbg_cmd_type_disconnect));
@@ -878,7 +839,7 @@ void dbg_cmd_manager_nochan(int input_size, int input[], int &output_size, int o
                         dbg_cmd_len = dbg_cmd_interrupt((dbg_cmd.data, dbg_cmd_type_interrupt));
                         break;
                 case DBG_CMD_RESET_REQ:
-                        dbg_cmd_len = dbg_cmd_reset((dbg_cmd.data, dbg_cmd_type_reset), reset);
+                        dbg_cmd_len = dbg_cmd_reset((dbg_cmd.data, dbg_cmd_type_reset), reset_signal_a, reset_signal_b);
                         break;
                 case DBG_CMD_READ_JTAG_REG_REQ:
                         dbg_cmd_len = dbg_cmd_read_jtag_reg((dbg_cmd.data, dbg_cmd_type_read_jtag_reg));
@@ -895,8 +856,17 @@ void dbg_cmd_manager_nochan(int input_size, int input[], int &output_size, int o
                 case DBG_CMD_JTAG_PINS_REQ:
                         dbg_cmd_len = dbg_cmd_jtag_pins((dbg_cmd.data, dbg_cmd_type_jtag_pins));
                         break;
+                case DBG_CMD_JTAG_PC_SAMPLE_REQ:
+                        dbg_cmd_len = dbg_cmd_jtag_pc_sample((dbg_cmd.data, dbg_cmd_type_jtag_pc_sample));
+                        break;
                 case DBG_CMD_FIRMWARE_REBOOT_REQ:
                         dbg_cmd_len = dbg_cmd_firmware_reboot((dbg_cmd.data, dbg_cmd_type_firmware_reboot));
+                        break;
+                case DBG_CMD_UPLOAD_XSCOPE_DATA_REQ:
+                        dbg_cmd_len = dbg_cmd_upload_xscope_data((dbg_cmd.data, dbg_cmd_type_upload_xscope_data), util_command);
+                        break;
+                case DBG_CMD_CONNECT_XSCOPE_CHANNEL_REQ:
+                        dbg_cmd_len = dbg_cmd_connect_xscope_channel((dbg_cmd.data, dbg_cmd_type_connect_xscope_channel), util_command);
                         break;
 #if 0
                 case DBG_CMD_FIRMWARE_VERSION_REQ:
